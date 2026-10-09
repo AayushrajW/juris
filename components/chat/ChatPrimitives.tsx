@@ -7,10 +7,13 @@ import { useId } from "react";
 export function MessageBubble({
   align,
   tone = "plain",
+  lang,
   children,
 }: {
   align: "left" | "right";
   tone?: "plain" | "accent" | "ai";
+  /** The language of the words inside, when it is known and may not be the page's. */
+  lang?: string;
   children: React.ReactNode;
 }) {
   const bubble =
@@ -21,7 +24,7 @@ export function MessageBubble({
         : "bg-white text-ink border border-border";
   return (
     <div className={cn("flex", align === "right" ? "justify-end" : "justify-start")}>
-      <div className={cn("max-w-[85%] rounded-2xl px-4 py-3 text-[16px] leading-relaxed", bubble)}>
+      <div lang={lang} className={cn("max-w-[85%] rounded-2xl px-4 py-3 text-[16px] leading-relaxed", bubble)}>
         {children}
       </div>
     </div>

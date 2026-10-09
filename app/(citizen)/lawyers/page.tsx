@@ -10,7 +10,7 @@ import type { MatterCategory } from "@/domain/case";
 import type { LawyerProfile } from "@/domain/lawyer";
 import { MATTER_LABELS } from "@/lib/constants";
 import { sortLawyersByMatch } from "@/lib/lawyerMatch";
-import { caseRepository, lawyerRepository } from "@/services";
+import { caseService, lawyerRepository } from "@/services";
 import { useSession } from "@/hooks/useSession";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -35,7 +35,7 @@ function LawyersInner() {
   useEffect(() => {
     const caseId = search.get("caseId");
     if (!caseId || !user) return;
-    void caseRepository.getById(caseId).then((r) => {
+    void caseService.get(caseId).then((r) => {
       if (r.ok) {
         setCtx({
           category: r.data.category,

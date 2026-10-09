@@ -75,12 +75,15 @@ export function TabPanel({
   idBase = "tabs",
   id,
   active,
+  lang,
   className,
   children,
 }: {
   idBase?: string;
   id: string;
   active: boolean;
+  /** Set when what the panel holds is written in a language other than the page's. */
+  lang?: string;
   className?: string;
   children: ReactNode;
 }) {
@@ -92,6 +95,7 @@ export function TabPanel({
       aria-labelledby={`${idBase}-tab-${id}`}
       tabIndex={0}
       hidden={!active}
+      lang={lang}
       className={className}
     >
       {children}

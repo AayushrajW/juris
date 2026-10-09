@@ -2,14 +2,19 @@
 
 import { Sheet } from "@/components/ui/Sheet";
 import { cn } from "@/lib/cn";
+import { useSession } from "@/hooks/useSession";
 import { LOCALE_COOKIE, LOCALE_NAMES, LOCALES, type Locale } from "@/i18n/config";
+import { accountService } from "@/services";
 import { Check, Languages } from "lucide-react";
 import { useLocale, useTranslations } from "use-intl";
 import { useState } from "react";
 
-function chooseLocale(locale: Locale) {
+async function chooseLocale(locale: Locale, signedIn: boolean) {
   const secure = window.location.protocol === "https:" ? "; Secure" : "";
   document.cookie = `${LOCALE_COOKIE}=${locale}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax${secure}`;
+  // The person's own record keeps the choice too, for explanations and messages
+  // written when no page is open. Before sign-in there is no record to keep it in.
+  if (signedIn) await accountService.updateProfile({ preferredLanguage: locale });
   // A full reload so every screen, and the sample content behind it, changes together.
   window.location.reload();
 }
@@ -17,6 +22,7 @@ function chooseLocale(locale: Locale) {
 /** Three large buttons, each language written in its own script. */
 export function LanguageChoices({ className }: { className?: string }) {
   const current = useLocale();
+  const { user } = useSession();
   return (
     <div className={cn("grid gap-2 sm:grid-cols-3", className)}>
       {LOCALES.map((locale) => {
@@ -27,7 +33,7 @@ export function LanguageChoices({ className }: { className?: string }) {
             type="button"
             lang={locale}
             aria-pressed={active}
-            onClick={() => (active ? undefined : chooseLocale(locale))}
+            onClick={() => (active ? undefined : void chooseLocale(locale, Boolean(user)))}
             className={cn(
               "flex min-h-14 items-center justify-between gap-3 rounded-2xl border-2 px-4 text-[18px] font-semibold",
               active

@@ -36,7 +36,8 @@ export interface CaseRecord {
   createdAt: string;
   updatedAt: string;
   location?: CaseLocation;
-  isDemo: true;
+  /** True for sample cases and for anything made while the app runs on sample data. */
+  isDemo: boolean;
 }
 
 export const CASE_STATUS_LABEL: Record<CaseStatus, string> = {
@@ -50,3 +51,7 @@ export const CASE_STATUS_LABEL: Record<CaseStatus, string> = {
 export function isOpenCase(status: CaseStatus): boolean {
   return status === "ready" || status === "needs_more_info";
 }
+
+/** The shortest story the service will read, and the longest name a case may have. */
+export const MIN_STORY_LENGTH = 20;
+export const MAX_TITLE_LENGTH = 120;

@@ -1,15 +1,17 @@
 import type { CaseAnalysis } from "@/domain/analysis";
 import type { CaseSource, MatterCategory } from "@/domain/case";
 import type { ProblemDescription } from "@/domain/document";
+import type { LanguageCode } from "@/domain/user";
 
 /** Everything the demo says in one language. Every language file has the same shape. */
 export interface DemoLocale {
+  language: LanguageCode;
   /** Titles of the three sample cases, by case id. */
   caseTitles: Record<string, string>;
   /** What the sample person wrote about each case, by case id. */
   descriptions: Record<string, Omit<ProblemDescription, "caseId">>;
   /** The sample explanations, by case id. */
-  analyses: Record<string, CaseAnalysis>;
+  analyses: Record<string, Omit<CaseAnalysis, "language">>;
   matterLabels: Record<MatterCategory, string>;
   /** Text for a case the visitor creates in the demo. */
   generated: {

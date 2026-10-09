@@ -1,4 +1,5 @@
 import type { CaseId } from "./case";
+import type { LanguageCode } from "./user";
 
 export type Urgency = "none" | "upcoming" | "soon" | "urgent";
 
@@ -65,8 +66,47 @@ export interface NextStepItem {
   kind: "self" | "official" | "legal_aid" | "lawyer";
 }
 
+/** How far the reading of a case has got. */
+export type AnalysisJobState = "queued" | "reading" | "writing" | "ready" | "failed";
+
+/** Why a reading stopped, so the screen can say what to do about it. */
+export interface AnalysisFailure {
+  reason: "unreadable" | "unsupported" | "too_long" | "internal";
+  /** True when asking again may work without changing anything. */
+  retryable: boolean;
+}
+
+/**
+ * One reading of a case. The case's own status follows its first reading:
+ * "processing" while it runs, then "ready" or "needs_more_info", or "error".
+ * Reading it again later leaves the status, and the explanation, as they are
+ * until the new reading succeeds.
+ */
+export interface AnalysisJob {
+  id: string;
+  caseId: CaseId;
+  state: AnalysisJobState;
+  /** The language the explanation is being written in. */
+  language: LanguageCode;
+  /** Set when `state` is "failed". */
+  failure?: AnalysisFailure;
+  startedAt: string;
+  /** When `state` last changed. */
+  updatedAt: string;
+}
+
+/** A date from one of the person's explanations that has not passed yet. */
+export interface UpcomingDeadline {
+  caseId: CaseId;
+  caseTitle: string;
+  label: string;
+  date: string;
+}
+
 export interface CaseAnalysis {
   caseId: CaseId;
+  /** The language it was written in. It stays in that language until the case is read again. */
+  language: LanguageCode;
   overview: {
     oneLine: string;
     documentOrProblemType: string;

@@ -4,6 +4,7 @@ import type { DemoLocale } from "./types";
 const SOURCE_NOTE = "A place to start for official information. It is not a ruling on this sample case.";
 
 export const EN: DemoLocale = {
+  language: "en",
   caseTitles: {
     "case-tenancy": "Notice from landlord to leave the flat",
     "case-consumer": "Washing machine still under warranty",

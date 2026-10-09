@@ -4,21 +4,19 @@ import { CaseCard } from "@/components/cases/CaseCard";
 import { ActionCard, AppPage } from "@/components/ui/AppKit";
 import { Alert, EmptyState, Skeleton } from "@/components/ui/Display";
 import { useSession } from "@/hooks/useSession";
+import type { UpcomingDeadline } from "@/domain/analysis";
 import type { CaseRecord } from "@/domain/case";
 import { HELP_HREF } from "@/lib/constants";
-import { daysLeftParts, nextDeadline } from "@/lib/deadlines";
+import { daysLeftParts } from "@/lib/deadlines";
 import { firstName, formatDate } from "@/lib/format";
-import { analysisService, caseRepository } from "@/services";
+import { caseService } from "@/services";
 import { Camera, CircleAlert, LifeBuoy, MessageCircle, Mic } from "lucide-react";
 import { useLocale, useTranslations } from "use-intl";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-interface ComingDate {
-  date: string;
-  label: string;
-  caseId: string;
-}
+/** How many of the person's problems the home screen shows. The rest are one tap away. */
+const RECENT = 3;
 
 export default function DashboardPage() {
   const t = useTranslations("dashboard");
@@ -28,36 +26,27 @@ export default function DashboardPage() {
   const { user, ready } = useSession();
   const [cases, setCases] = useState<CaseRecord[] | null>(null);
   const [failed, setFailed] = useState(false);
-  const [deadline, setDeadline] = useState<ComingDate | null>(null);
+  const [deadline, setDeadline] = useState<UpcomingDeadline | null>(null);
 
+  // Two small requests, whatever the number of problems: the newest few, and the nearest date.
   useEffect(() => {
-    if (!user) return;
     let cancelled = false;
     void (async () => {
-      const result = await caseRepository.listByCitizen(user.id);
+      const [list, dates] = await Promise.all([
+        caseService.list({ limit: RECENT }),
+        caseService.upcomingDeadlines({ limit: 1 }),
+      ]);
       if (cancelled) return;
-      if (!result.ok) {
-        setFailed(true);
-        return;
-      }
-      setCases(result.data);
-      const analyses = await Promise.all(result.data.map((c) => analysisService.getAnalysis(c.id)));
-      if (cancelled) return;
-      const dated: ComingDate[] = [];
-      analyses.forEach((a, i) => {
-        if (!a.ok) return;
-        a.data.deadlines.forEach((d) => {
-          if (d.date) dated.push({ date: d.date, label: d.label, caseId: result.data[i].id });
-        });
-      });
-      setDeadline(nextDeadline(dated));
+      if (list.ok) setCases(list.data.items);
+      else setFailed(true);
+      if (dates.ok) setDeadline(dates.data[0] ?? null);
     })();
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, []);
 
-  const recent = cases?.slice(0, 3) ?? [];
+  const recent = cases ?? [];
 
   if (!ready) {
     return (

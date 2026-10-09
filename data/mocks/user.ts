@@ -5,5 +5,5 @@ export const DEMO_USER: User = {
   role: "citizen",
   displayName: "Meera Iyer",
   email: "meera.demo@juris.example",
-  preferredLanguage: "en",
+  preferredLanguage: "mr",
 };

@@ -15,7 +15,7 @@
 ## 1. The short version
 
 - Juris today is a well-built demo with nothing behind it. The screens, design system and vocabulary are worth keeping. Sign-in, storage, document reading, analysis, chat and the advocate profiles are all simulated.
-- **It must not go public as it stands.** Anyone can enter as anyone, every account shares one identity and one set of data, the pinned framework version has remote-code-execution advisories, and there is no privacy notice or consent.
+- **It must not go public as it stands.** Anyone can enter as anyone, nothing is kept anywhere but on the phone, no paper is really read, and there is no privacy notice or consent.
 - A **public demo** (clearly labelled, sample data only) is ready to deploy as soon as there is a hosting account.
 - A **public product** is roughly **12 to 16 weeks** of work for two or three engineers, plus a legal track that runs alongside and has its own lead times.
 - **The advocate section is the biggest risk, and it is legal, not technical.** It ranks, rates, prices and "matches" advocates, which collides with Bar Council of India rules on advertising and solicitation. This plan launches without it.
@@ -23,19 +23,21 @@
 - **Running costs start small:** about $45 a month for hosting and data, rising to about $155 a month at launch, plus roughly $0.06 to $0.15 in AI cost per analysed case.
 - Twelve decisions in section 3 are yours to make. Four have long external lead times and should start this week: a registered business, SMS sender registration, a legal opinion, and trade-mark clearance.
 
-### Where things stand (9 October 2026)
+### Where things stand (10 October 2026)
 
 **Done**
 
 - Phase 0, in the repository: version control, Next.js 16, deny-by-default route protection, a content security policy, the open-redirect fix, clean sign-out, date-derived deadlines, error screens, the advocate features switched off, the demo banner, tests and a CI workflow.
 - Marathi (the default), Hindi and English across every screen and the sample cases, with a read-aloud button and a Free help screen with tap-to-call numbers. This was planned for Phases 1 and 2 and was brought forward.
-- Of the 206 audit findings, 86 are fixed. The 120 still open include 11 critical and 19 high, and every one of those needs the real backend, the legal pages or a decision from section 3.
+- Phase 1, first step: the service contracts are rewritten and every screen uses them. The screens no longer say who the person is, lists come in pages, failures are codes shown in the person's language, reading a problem is a background job that survives a closed page, and an explanation stays in the language it was written in until the person asks for it again. People can now delete a problem, download their data and delete everything. A suite of contract tests pins all of this down, and the real backend has to pass the same suite.
+- Of the 206 audit findings, 103 are fixed. The 103 still open include 10 critical and 12 high, and every one of those needs the real backend, the legal pages or a decision from section 3.
 
 **Needs you**
 
 1. **A private repository on GitHub.** The work is committed locally only, so CI has never run.
 2. **A hosting account**, to put the labelled demo online.
 3. **A human read-through of the Marathi and Hindi**, by someone who reads at the level of your users. The text has had two machine passes, not a person's.
+4. **Decisions 4 and 5 in section 3** (where the data lives, and how people sign in). The next steps of Phase 1 cannot start without them.
 
 **Changed from the plan as first written**
 
@@ -62,7 +64,7 @@ No database, no real sign-in, no file storage, no document reading, no AI, no ba
 
 ### Audit result
 
-206 findings across security, legal and content, correctness, architecture, and UX. At the audit, 204 were open: 13 critical, 35 high, 107 medium and 49 low. Since then 86 have been fixed, leaving 120 open: 11 critical, 19 high, 69 medium and 21 low. The table below describes the product as audited.
+206 findings across security, legal and content, correctness, architecture, and UX. At the audit, 204 were open: 13 critical, 35 high, 107 medium and 49 low. Since then 103 have been fixed, leaving 103 open: 10 critical, 12 high, 60 medium and 21 low. The table below describes the product as audited.
 
 - Seventeen entries, covering eight distinct problems, were reproduced first-hand in the running app or with tooling.
 - A second reviewer re-checked the 68 most serious and rejected none, but lowered the severity of 29, mostly because they describe things a prototype has not built yet and not things that are broken today.
@@ -268,16 +270,16 @@ Durations assume two or three engineers. The legal track in section 8 runs in pa
 **Goal:** a person signs in with their phone and their cases are stored safely in India.
 
 1. Move to Next.js 16. Done in Phase 0.
-2. Rewrite the service contracts: no identity parameters, paged lists, a fuller error vocabulary, a job model for analysis, add and delete operations (ARC-02, ARC-10, ARC-11, ARC-26).
+2. Rewrite the service contracts: no identity parameters, paged lists, a fuller error vocabulary, a job model for analysis, add and delete operations (ARC-02, ARC-10, ARC-11, ARC-26). Done, with every screen moved over and a contract test suite (`tests/contracts.test.ts`) that the real backend must also pass. Five parts of the contract are left for the step that needs them, because each depends on a decision or a service that does not exist yet: the two-step phone sign-in (step 5), recording and withdrawing consent (step 6), replies that appear word by word and upload progress on slow connections (Phase 2), and export as a background job once it has to include the papers themselves (step 7).
 3. Move the services behind the server (ARC-01). Screens call the server; the server calls the data.
 4. Database schema with row-level security, migrations, and automated tests that prove one person cannot read another's case (ARC-05, SEC-11).
 5. Phone sign-in with secure, server-set session cookies (ARC-03).
 6. Consent recorded at sign-up and at first upload, an 18+ declaration, and the privacy, terms, disclaimer and grievance pages (LEG-14, LEG-15, LEG-17).
-7. Export and delete for one's own data and account (LEG-16, SEC-17).
+7. Export and delete for one's own data and account (LEG-16, SEC-17). Done in the contract and on the screens (delete a problem, download my data, delete everything). On the real backend it also has to erase stored files and backups, and confirm who is asking before it deletes an account.
 8. Rate limits and per-person daily quotas (ARC-20).
 9. Error tracking and logging with personal data scrubbed (ARC-22).
 10. Move all interface text into message files (UX-05, ARC-34). Done, in three languages.
-11. Fix the accessibility gaps on core screens. Done: semantics and focus in the new-case steps, working tabs and dialogs, legal aid in the main navigation. Still to do: a title per page, and error messages tied to each field (UX-02, UX-04).
+11. Fix the accessibility gaps on core screens (UX-02, UX-04). Done: semantics and focus in the new-case steps, working tabs and dialogs, legal aid in the main navigation, a title for every page, and each form error shown on its own field.
 
 **Done when:** a real person can sign in by phone, create, rename and delete a text-only case stored in Mumbai, export their data, and delete their account, with cross-account access tests passing in CI.
 

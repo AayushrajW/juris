@@ -2,11 +2,13 @@
 
 import { AskAiPanel } from "@/components/assistant/AskAiPanel";
 import { AppPage, PageHeading } from "@/components/ui/AppKit";
-import { EmptyState, Skeleton } from "@/components/ui/Display";
+import { Button } from "@/components/ui/Button";
+import { Alert, EmptyState, Skeleton } from "@/components/ui/Display";
 import { Select } from "@/components/ui/Field";
-import { useSession } from "@/hooks/useSession";
-import { caseRepository } from "@/services";
+import { useErrorText } from "@/hooks/useErrorText";
+import { caseService } from "@/services";
 import type { CaseRecord } from "@/domain/case";
+import type { ServiceError } from "@/domain/result";
 import { useTranslations } from "use-intl";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -14,21 +16,27 @@ import { Suspense, useEffect, useState } from "react";
 
 function AssistantInner() {
   const t = useTranslations("assistant");
-  const { user } = useSession();
+  const common = useTranslations("common");
+  const errorText = useErrorText();
   const search = useSearchParams();
   const [cases, setCases] = useState<CaseRecord[] | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
+  const [error, setError] = useState<ServiceError | null>(null);
+  const [loadTry, setLoadTry] = useState(0);
 
+  // Questions are answered from an explanation, so only problems that have one are offered.
   useEffect(() => {
-    if (!user) return;
     let cancelled = false;
-    void caseRepository.listByCitizen(user.id).then((r) => {
-      if (!cancelled) setCases(r.ok ? r.data : []);
+    void caseService.list({ status: ["ready", "needs_more_info"], limit: 50 }).then((r) => {
+      if (cancelled) return;
+      // A list that could not be read is not an empty list.
+      if (r.ok) setCases(r.data.items);
+      setError(r.ok ? null : r.error);
     });
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [loadTry]);
 
   // Only a problem that belongs to this person can be picked, whatever the link says.
   const linked = search.get("caseId");
@@ -38,7 +46,16 @@ function AssistantInner() {
   return (
     <AppPage>
       <PageHeading title={t("title")} subtitle={t("subtitle")} />
-      {cases === null ? (
+      {error ? (
+        <div className="mt-5 space-y-3">
+          <Alert tone="danger" title={common("couldNotLoad")}>
+            {errorText(error)}
+          </Alert>
+          <Button variant="secondary" size="lg" onClick={() => setLoadTry((n) => n + 1)}>
+            {common("tryAgain")}
+          </Button>
+        </div>
+      ) : cases === null ? (
         <Skeleton className="mt-5 h-64 w-full" />
       ) : caseId ? (
         <>

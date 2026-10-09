@@ -11,6 +11,13 @@ export interface UploadedDocument {
   kind: "pdf" | "image" | "other";
   previewUrl?: string;
   uploadStatus: "local_only" | "simulated";
+  /** When it was added. */
+  createdAt: string;
+}
+
+/** A paper together with the name of the case it belongs to, for lists across cases. */
+export interface DocumentListing extends UploadedDocument {
+  caseTitle: string;
 }
 
 export interface ProblemDescription {

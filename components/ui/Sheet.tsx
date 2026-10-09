@@ -16,11 +16,14 @@ export function Sheet({
   open,
   onClose,
   title,
+  locked = false,
   children,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
+  /** While something started from the panel is still running, it cannot be closed, so its result is always seen. */
+  locked?: boolean;
   children: React.ReactNode;
 }) {
   const t = useTranslations("common");
@@ -49,11 +52,15 @@ export function Sheet({
     <dialog
       ref={ref}
       aria-labelledby={titleId}
+      // Escape asks to close before it closes; this is where a locked panel says no.
+      onCancel={(e) => {
+        if (locked) e.preventDefault();
+      }}
       // Fires for Escape and for close(); keeps the parent's state in step.
       onClose={onClose}
       // A click on the dimmed area lands on the dialog element itself.
       onClick={(e) => {
-        if (e.target === ref.current) onClose();
+        if (e.target === ref.current && !locked) onClose();
       }}
       className={cn(
         "m-0 mt-auto max-h-[88vh] w-full max-w-none flex-col rounded-t-2xl border border-border bg-surface p-0 text-ink shadow-lg backdrop:bg-navy/40 open:flex md:m-auto md:max-w-lg md:rounded-2xl",
@@ -65,7 +72,7 @@ export function Sheet({
             <h2 id={titleId} className="text-[19px] font-semibold text-navy">
               {title}
             </h2>
-            <IconButton label={t("close")} onClick={onClose} className="size-11">
+            <IconButton label={t("close")} onClick={onClose} disabled={locked} className="size-11">
               <X className="size-6" aria-hidden />
             </IconButton>
           </div>

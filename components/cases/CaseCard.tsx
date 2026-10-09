@@ -1,7 +1,7 @@
 "use client";
 
 import { CaseStatusBadge } from "@/components/cases/CaseStatusBadge";
-import type { CaseRecord } from "@/domain/case";
+import { isOpenCase, type CaseRecord } from "@/domain/case";
 import { Briefcase, FileText, Landmark, Receipt, Shield, Users } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
@@ -30,8 +30,8 @@ const iconTone = {
 } as const;
 
 export function CaseCard({ record }: { record: CaseRecord }) {
-  const href =
-    record.status === "processing" ? `/cases/${record.id}/processing` : `/cases/${record.id}`;
+  // Until a problem has its explanation, the progress page is where it lives.
+  const href = isOpenCase(record.status) ? `/cases/${record.id}` : `/cases/${record.id}/processing`;
   const Icon = icons[record.category];
   const t = useTranslations("cases");
   return (

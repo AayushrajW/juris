@@ -2,46 +2,77 @@
 
 import { CaseCard } from "@/components/cases/CaseCard";
 import { AppPage, PageHeading } from "@/components/ui/AppKit";
+import { Button } from "@/components/ui/Button";
 import { Alert, EmptyState, Skeleton } from "@/components/ui/Display";
 import { Select } from "@/components/ui/Field";
-import { useSession } from "@/hooks/useSession";
 import type { CaseRecord, CaseStatus } from "@/domain/case";
-import { caseRepository } from "@/services";
+import type { ServiceError } from "@/domain/result";
+import { useErrorText } from "@/hooks/useErrorText";
+import { caseService } from "@/services";
 import { Plus } from "lucide-react";
 import { useTranslations } from "use-intl";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 /** Only the states a person can actually see in their list. */
 const FILTERS: CaseStatus[] = ["ready", "needs_more_info", "processing"];
+
+type Filter = CaseStatus | "all";
+
+const statusOf = (filter: Filter) => (filter === "all" ? undefined : filter);
 
 export default function CaseHistoryPage() {
   const t = useTranslations("cases");
   const tStatus = useTranslations("status");
   const common = useTranslations("common");
-  const { user } = useSession();
+  const errorText = useErrorText();
   const [cases, setCases] = useState<CaseRecord[] | null>(null);
-  const [filter, setFilter] = useState<CaseStatus | "all">("all");
-  const [failed, setFailed] = useState(false);
+  // Where the next page starts, when there is one.
+  const [more, setMore] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [error, setError] = useState<ServiceError | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Shown beside the button, which is where the person is looking when it fails.
+  const [moreError, setMoreError] = useState<ServiceError | null>(null);
 
+  // The service does the filtering: the list comes in pages, so this page never holds all of it.
   useEffect(() => {
-    if (!user) return;
     let cancelled = false;
-    void caseRepository.listByCitizen(user.id).then((result) => {
+    void caseService.list({ status: statusOf(filter) }).then((result) => {
       if (cancelled) return;
-      if (result.ok) setCases(result.data);
-      else setFailed(true);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setError(null);
+      setCases(result.data.items);
+      setMore(result.data.nextCursor);
     });
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [filter]);
 
-  const visible = useMemo(() => {
-    if (!cases) return [];
-    if (filter === "all") return cases;
-    return cases.filter((c) => c.status === filter);
-  }, [cases, filter]);
+  function chooseFilter(next: Filter) {
+    setCases(null);
+    setMore(null);
+    setMoreError(null);
+    setFilter(next);
+  }
+
+  async function showMore() {
+    if (!more) return;
+    setLoadingMore(true);
+    setMoreError(null);
+    const result = await caseService.list({ status: statusOf(filter), cursor: more });
+    setLoadingMore(false);
+    if (!result.ok) {
+      setMoreError(result.error);
+      return;
+    }
+    setCases((current) => [...(current ?? []), ...result.data.items]);
+    setMore(result.data.nextCursor);
+  }
 
   return (
     <AppPage>
@@ -63,7 +94,9 @@ export default function CaseHistoryPage() {
           id="status"
           label={t("filterLabel")}
           value={filter}
-          onChange={(e) => setFilter(e.target.value as CaseStatus | "all")}
+          // Not while more of the old list is on its way: it would land in the new one.
+          disabled={loadingMore}
+          onChange={(e) => chooseFilter(e.target.value as Filter)}
         >
           <option value="all">{t("filterAll")}</option>
           {FILTERS.map((s) => (
@@ -74,14 +107,22 @@ export default function CaseHistoryPage() {
         </Select>
       </div>
       <div className="mt-6 grid gap-2.5">
-        {failed ? <Alert tone="danger" title={common("couldNotLoad")} /> : null}
-        {cases === null && !failed ? <Skeleton className="h-16" /> : null}
-        {cases && visible.length === 0 ? (
-          <EmptyState title={t("emptyTitle")} body={t("emptyBody")} />
-        ) : null}
-        {visible.map((record) => (
+        {error ? <Alert tone="danger" title={common("couldNotLoad")}>{errorText(error)}</Alert> : null}
+        {cases === null && !error ? <Skeleton className="h-16" /> : null}
+        {cases && cases.length === 0 ? <EmptyState title={t("emptyTitle")} body={t("emptyBody")} /> : null}
+        {cases?.map((record) => (
           <CaseCard key={record.id} record={record} />
         ))}
+        {moreError ? (
+          <p className="text-[15px] text-danger" role="alert">
+            {errorText(moreError)}
+          </p>
+        ) : null}
+        {more ? (
+          <Button variant="secondary" size="lg" onClick={() => void showMore()} disabled={loadingMore}>
+            {common("showMore")}
+          </Button>
+        ) : null}
       </div>
     </AppPage>
   );

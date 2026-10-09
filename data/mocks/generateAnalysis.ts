@@ -27,6 +27,7 @@ export function generateDemoAnalysis(
 
   return {
     caseId: record.id,
+    language: text.language,
     overview: {
       oneLine: t.oneLine(record.title, text.matterLabels[record.category]),
       documentOrProblemType: record.source === "description" ? t.typeFromStory : t.typeFromPaper,

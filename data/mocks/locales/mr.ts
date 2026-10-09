@@ -4,6 +4,7 @@ import type { DemoLocale } from "./types";
 const SOURCE_NOTE = "सरकारी माहिती शोधायला इथून सुरुवात करा. हा या नमुना समस्येवरचा निकाल नाही.";
 
 export const MR: DemoLocale = {
+  language: "mr",
   caseTitles: {
     "case-tenancy": "घर सोडण्यासाठी घरमालकाची नोटीस",
     "case-consumer": "वॉशिंग मशीन अजून वॉरंटीत आहे",

@@ -2,7 +2,7 @@ import { Inter, Noto_Sans_Devanagari } from "next/font/google";
 import { IntlProvider, SkipLink } from "@/components/i18n/IntlProvider";
 import { DemoBanner } from "@/components/ui/Display";
 import { SessionProvider } from "@/hooks/useSession";
-import { loadMessages, requestLocale } from "@/i18n/server";
+import { TITLE_TEMPLATE, loadMessages, requestLocale } from "@/i18n/server";
 import { APP_NAME } from "@/lib/constants";
 import { env } from "@/lib/env";
 import type { Metadata, Viewport } from "next";
@@ -25,7 +25,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: {
       default: meta.title.replace("{app}", APP_NAME),
-      template: `%s · ${APP_NAME}`,
+      template: TITLE_TEMPLATE,
     },
     description: meta.description.replace("{app}", APP_NAME),
     // Nothing here should be found through a search engine while it is a demo.

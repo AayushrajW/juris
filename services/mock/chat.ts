@@ -1,19 +1,26 @@
-import type { CaseAnalysis } from "@/domain/analysis";
+import { demoLocale } from "@/data/mocks/locales";
+import type { CaseRecord } from "@/domain/case";
 import type { ChatMessage } from "@/domain/chat";
+import { fail, ok } from "@/domain/result";
+import type { LanguageCode } from "@/domain/user";
 import { nextDeadline } from "@/lib/deadlines";
 import { formatDate } from "@/lib/format";
+import { newId } from "@/lib/ids";
 import type { ChatService } from "@/services/types";
-import { mockAnalysisService } from "./analysis";
-import { currentLocale, demoText } from "./locale";
+import { explanationIn, finishedExplanation } from "./analysis";
+import { currentLocale } from "./locale";
+import { ownedCase, paginateFromEnd } from "./session";
 import { loadStore, updateStore, type DemoReplyKind, type StoredChatMessage } from "./store";
+
+const MAX_QUESTION_LENGTH = 2000;
 
 function mentions(question: string, words: string[]) {
   return words.some((word) => question.includes(word));
 }
 
 /** Picks one of the scripted replies from the words in the question. No model is involved. */
-function replyKind(content: string): DemoReplyKind {
-  const { keywords } = demoText().chat;
+function replyKind(content: string, language: LanguageCode): DemoReplyKind {
+  const { keywords } = demoLocale(language).chat;
   const question = content.toLowerCase();
   if (mentions(question, keywords.person)) return "person";
   if (mentions(question, keywords.date)) return "date";
@@ -21,66 +28,95 @@ function replyKind(content: string): DemoReplyKind {
   return "overview";
 }
 
-function replyText(kind: DemoReplyKind, analysis: CaseAnalysis | null): string {
-  const t = demoText().chat;
+function replyText(kind: DemoReplyKind, record: CaseRecord, language: LanguageCode): string {
+  const t = demoLocale(language).chat;
+  const explanation = explanationIn(record, language);
   let body: string;
   if (kind === "person") {
     body = t.person;
   } else if (kind === "date") {
-    const first = analysis ? (nextDeadline(analysis.deadlines) ?? analysis.deadlines[0]) : null;
-    body = first ? t.date(first.label, formatDate(first.date, currentLocale())) : t.noDate;
+    const first = nextDeadline(explanation.deadlines) ?? explanation.deadlines[0];
+    body = first ? t.date(first.label, formatDate(first.date, language)) : t.noDate;
   } else if (kind === "next") {
-    const step = analysis?.nextSteps.slice().sort((a, b) => a.order - b.order)[0];
+    const step = explanation.nextSteps.slice().sort((a, b) => a.order - b.order)[0];
     body = t.nextStep(step?.text ?? t.defaultStep);
   } else {
-    body = t.overview(analysis?.overview.oneLine ?? t.defaultOverview);
+    body = t.overview(explanation.overview.oneLine || t.defaultOverview);
   }
   return `${t.prefix} ${body}`;
 }
 
 /**
- * Replies are written out when they are read, not when they are stored, so
- * they follow the page's language and the sample dates stay current.
+ * A reply keeps the language it was given in, as a real one would. Its words
+ * are still put together when it is read, so the sample dates stay current.
  */
-async function render(caseId: string, stored: StoredChatMessage[]): Promise<ChatMessage[]> {
-  const result = await mockAnalysisService.getAnalysis(caseId);
-  const analysis = result.ok ? result.data : null;
-  return stored.map(({ demoReply, ...message }) =>
-    demoReply ? { ...message, content: replyText(demoReply, analysis) } : message,
-  );
+function render(record: CaseRecord, stored: StoredChatMessage[]): ChatMessage[] {
+  return stored.map((m) => {
+    const language = m.language ?? currentLocale();
+    return {
+      id: m.id,
+      caseId: m.caseId,
+      role: m.role,
+      content: m.demoReply ? replyText(m.demoReply, record, language) : m.content,
+      createdAt: m.createdAt,
+      isDemo: m.isDemo,
+      ...(m.demoReply ? { language } : {}),
+    };
+  });
 }
 
 export const mockChatService: ChatService = {
-  async list(caseId) {
-    return { ok: true, data: await render(caseId, loadStore().chats[caseId] ?? []) };
+  async list(caseId, params) {
+    const found = ownedCase(caseId);
+    if (!found.ok) return found;
+    const page = paginateFromEnd(loadStore().chats[caseId] ?? [], params, (m) => m.id);
+    if (!page.ok) return page;
+    return ok({ ...page.data, items: render(found.data, page.data.items) });
   },
-  async send(caseId, content) {
+  async send(caseId, content, options) {
+    const found = ownedCase(caseId);
+    if (!found.ok) return found;
     const trimmed = content.trim();
-    if (!trimmed) {
-      return { ok: false, code: "invalid", message: "Type a question first." };
+    if (!trimmed) return fail("invalid", { reason: "empty", field: "content" });
+    if (trimmed.length > MAX_QUESTION_LENGTH) return fail("invalid", { reason: "too_long", field: "content" });
+
+    const thread = loadStore().chats[caseId] ?? [];
+    // A retry of a request that already went through gets the first answer back.
+    const earlier = options?.requestId
+      ? thread.findIndex((m) => m.requestId === options.requestId)
+      : -1;
+    if (earlier >= 0) {
+      if (thread[earlier].content !== trimmed) return fail("conflict", { reason: "request_reused" });
+      return ok(render(found.data, thread.slice(earlier, earlier + 2)));
     }
+    // Questions are answered from the explanation, so there has to be one.
+    const explained = finishedExplanation(found.data);
+    if (!explained.ok) return explained;
+
+    const language = options?.language ?? currentLocale();
     const now = new Date().toISOString();
-    const userMsg: StoredChatMessage = {
-      id: `m-${crypto.randomUUID()}`,
+    const question: StoredChatMessage = {
+      id: `m-${newId()}`,
       caseId,
       role: "user",
       content: trimmed,
       createdAt: now,
+      requestId: options?.requestId,
     };
-    const assistantMsg: StoredChatMessage = {
-      id: `m-${crypto.randomUUID()}`,
+    const reply: StoredChatMessage = {
+      id: `m-${newId()}`,
       caseId,
       role: "assistant",
       content: "",
       createdAt: now,
       isDemo: true,
-      demoReply: replyKind(trimmed),
+      demoReply: replyKind(trimmed, language),
+      language,
     };
-    let next: StoredChatMessage[] = [];
-    updateStore((s) => {
-      next = [...(s.chats[caseId] ?? []), userMsg, assistantMsg];
-      return { ...s, chats: { ...s.chats, [caseId]: next } };
-    });
-    return { ok: true, data: await render(caseId, next) };
+    updateStore((s) => ({
+      ...s,
+      chats: { ...s.chats, [caseId]: [...(s.chats[caseId] ?? []), question, reply] },
+    }));
+    return ok(render(found.data, [question, reply]));
   },
 };

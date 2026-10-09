@@ -2,6 +2,7 @@
 
 import { AskAiPanel } from "@/components/assistant/AskAiPanel";
 import { CaseStatusBadge } from "@/components/cases/CaseStatusBadge";
+import { DeleteProblem } from "@/components/cases/DeleteProblem";
 import { LawyerCard } from "@/components/lawyers/LawyerCard";
 import { AppPage, TabPanel, Tabs } from "@/components/ui/AppKit";
 import { Button } from "@/components/ui/Button";
@@ -9,14 +10,16 @@ import { Alert, Badge, Card, EmptyState, Skeleton } from "@/components/ui/Displa
 import { ListenButton } from "@/components/ui/ListenButton";
 import { Sheet } from "@/components/ui/Sheet";
 import type { CaseAnalysis } from "@/domain/analysis";
-import type { CaseRecord } from "@/domain/case";
+import { isOpenCase, type CaseRecord } from "@/domain/case";
 import type { ProblemDescription, UploadedDocument } from "@/domain/document";
+import { useErrorText } from "@/hooks/useErrorText";
+import { LOCALE_NAMES } from "@/i18n/config";
 import { daysLeftParts, deadlineState, type DeadlineState } from "@/lib/deadlines";
 import { env } from "@/lib/env";
 import { formatDate } from "@/lib/format";
 import { sortLawyersByMatch } from "@/lib/lawyerMatch";
 import { isHttpsUrl } from "@/lib/safeRedirect";
-import { analysisService, caseRepository, documentService, lawyerRepository } from "@/services";
+import { analysisService, caseService, documentService, lawyerRepository } from "@/services";
 import type { LawyerProfile } from "@/domain/lawyer";
 import { ArrowLeft, ExternalLink, Info, LifeBuoy, MessageCircle } from "lucide-react";
 import { useLocale, useTranslations } from "use-intl";
@@ -42,47 +45,57 @@ export default function CaseAnalysisPage() {
   const common = useTranslations("common");
   const tDeadline = useTranslations("deadline");
   const locale = useLocale();
+  const errorText = useErrorText();
   const { caseId } = useParams<{ caseId: string }>();
   const router = useRouter();
   const [record, setRecord] = useState<CaseRecord | null>(null);
   const [analysis, setAnalysis] = useState<CaseAnalysis | null>(null);
-  const [doc, setDoc] = useState<UploadedDocument | null>(null);
+  const [docs, setDocs] = useState<UploadedDocument[]>([]);
   const [desc, setDesc] = useState<ProblemDescription | null>(null);
-  const [problem, setProblem] = useState<"not_found" | "not_ready" | null>(null);
+  const [problem, setProblem] = useState<"not_found" | "failed" | null>(null);
   const [tab, setTab] = useState<TabId>("what");
   const [aiOpen, setAiOpen] = useState(false);
+  const [explaining, setExplaining] = useState(false);
+  const [explainError, setExplainError] = useState<string | null>(null);
   const [lawyers, setLawyers] = useState<LawyerProfile[]>([]);
 
   useEffect(() => {
     let cancelled = false;
+    const waitingPage = `/cases/${caseId}/processing`;
     async function load() {
-      const c = await caseRepository.getById(caseId);
+      const c = await caseService.get(caseId);
       if (cancelled) return;
       if (!c.ok) {
-        setProblem("not_found");
+        setProblem(c.error.code === "not_found" ? "not_found" : "failed");
+        return;
+      }
+      // Nothing to show until it has been read. The progress page is the place to wait.
+      if (!isOpenCase(c.data.status)) {
+        router.replace(waitingPage);
         return;
       }
       setRecord(c.data);
       const [a, d, p, l] = await Promise.all([
-        analysisService.getAnalysis(caseId),
-        documentService.getByCaseId(caseId),
-        documentService.getDescription(caseId),
+        analysisService.get(caseId),
+        documentService.list(caseId),
+        caseService.getStory(caseId),
         env.advocatesEnabled ? lawyerRepository.list() : null,
       ]);
       if (cancelled) return;
       if (a.ok) setAnalysis(a.data);
-      else setProblem("not_ready");
-      if (d.ok) setDoc(d.data);
+      else if (a.error.code === "conflict") router.replace(waitingPage);
+      else setProblem("failed");
+      if (d.ok) setDocs(d.data);
       if (p.ok) setDesc(p.data);
       if (l?.ok) setLawyers(l.data);
     }
     void load().catch(() => {
-      if (!cancelled) setProblem("not_ready");
+      if (!cancelled) setProblem("failed");
     });
     return () => {
       cancelled = true;
     };
-  }, [caseId]);
+  }, [caseId, router]);
 
   const ranked = useMemo(() => {
     if (!record) return [];
@@ -96,7 +109,7 @@ export default function CaseAnalysisPage() {
   if (problem) {
     return (
       <AppPage>
-        <Alert tone="danger" title={t(problem === "not_found" ? "errNotFoundTitle" : "errNotReadyTitle")}>
+        <Alert tone="danger" title={problem === "not_found" ? t("errNotFoundTitle") : common("couldNotLoad")}>
           {t("errBody")}{" "}
           <Link className="font-semibold underline" href="/cases">
             {t("backToProblems")}
@@ -129,6 +142,26 @@ export default function CaseAnalysisPage() {
     tabButton?.focus();
     tabButton?.scrollIntoView({ block: "start" });
   }
+
+  /**
+   * The explanation stays in the language it was written in. This asks for it
+   * again in the page's language. The one on screen is kept until the new one
+   * is ready, and is still here if the new reading fails.
+   */
+  async function explainAgain() {
+    setExplaining(true);
+    setExplainError(null);
+    const job = await analysisService.start(caseId, { rerun: true, language: locale });
+    if (job.ok) {
+      router.push(`/cases/${caseId}/processing`);
+      return;
+    }
+    setExplaining(false);
+    setExplainError(errorText(job.error));
+  }
+
+  // What the explanation says is in its own language, which is not always the page's.
+  const written = analysis.language;
 
   function dateLine(date: string | undefined) {
     const formatted = formatDate(date, locale);
@@ -163,6 +196,22 @@ export default function CaseAnalysisPage() {
         {t("notAdvice")}
       </p>
 
+      {analysis.language !== locale ? (
+        <div className="mt-3 rounded-xl border border-border bg-surface px-3 py-3">
+          <p className="text-[15px] text-ink">
+            {t("otherLanguage", { language: LOCALE_NAMES[analysis.language] })}
+          </p>
+          <Button className="mt-2" variant="secondary" onClick={() => void explainAgain()} disabled={explaining}>
+            {t("readAgain", { language: LOCALE_NAMES[locale] })}
+          </Button>
+          {explainError ? (
+            <p className="mt-2 text-[15px] text-danger" role="alert">
+              {explainError}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       <Tabs
         className="mt-4"
         idBase="case"
@@ -175,11 +224,11 @@ export default function CaseAnalysisPage() {
         onChange={(id) => setTab(id as TabId)}
       />
 
-      <TabPanel idBase="case" id="what" active={tab === "what"} className="mt-6 space-y-4">
+      <TabPanel idBase="case" id="what" active={tab === "what"} lang={written} className="mt-6 space-y-4">
         <div className="rounded-2xl bg-pastel-blue p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <SectionTitle>{t("simpleWords")}</SectionTitle>
-            <ListenButton text={analysis.plainLanguageSummary} />
+            <ListenButton text={analysis.plainLanguageSummary} lang={written} />
           </div>
           <p className="mt-2 text-[17px] leading-relaxed text-ink">{analysis.plainLanguageSummary}</p>
         </div>
@@ -217,22 +266,23 @@ export default function CaseAnalysisPage() {
         <details className="ns-card p-5">
           <summary className="min-h-11 cursor-pointer text-[17px] font-semibold text-navy">{t("details")}</summary>
           <div className="mt-4 space-y-5">
-            {doc?.previewUrl ? (
-              <div className="overflow-hidden rounded-2xl border border-border bg-white">
-                {/* The sample pictures are small local files, so the image optimiser adds nothing. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={doc.previewUrl}
-                  alt={t("paperAlt", { name: doc.fileName })}
-                  width={800}
-                  height={1000}
-                  className="h-auto w-full"
-                />
-              </div>
-            ) : doc ? (
-              <EmptyState title={doc.fileName} body={t("noPreview")} />
-            ) : (
-              <EmptyState title={t("noPaperTitle")} body={t("noPaperBody")} />
+            {docs.length === 0 ? <EmptyState title={t("noPaperTitle")} body={t("noPaperBody")} /> : null}
+            {docs.map((doc) =>
+              doc.previewUrl ? (
+                <div key={doc.id} className="overflow-hidden rounded-2xl border border-border bg-white">
+                  {/* The sample pictures are small local files, so the image optimiser adds nothing. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={doc.previewUrl}
+                    alt={t("paperAlt", { name: doc.fileName })}
+                    width={800}
+                    height={1000}
+                    className="h-auto w-full"
+                  />
+                </div>
+              ) : (
+                <EmptyState key={doc.id} title={doc.fileName} body={t("noPreview")} />
+              ),
             )}
 
             {desc ? (
@@ -313,7 +363,7 @@ export default function CaseAnalysisPage() {
         </details>
       </TabPanel>
 
-      <TabPanel idBase="case" id="do" active={tab === "do"} className="mt-6 space-y-5">
+      <TabPanel idBase="case" id="do" active={tab === "do"} lang={written} className="mt-6 space-y-5">
         <p className="text-[16px] text-muted">{t("stepsIntro")}</p>
         <ol className="space-y-3">
           {steps.map((s) => (
@@ -420,6 +470,10 @@ export default function CaseAnalysisPage() {
             ))
           : null}
       </TabPanel>
+
+      <div className="mt-10 border-t border-border pt-4">
+        <DeleteProblem caseId={caseId} onDeleted={() => router.replace("/cases")} />
+      </div>
 
       <Sheet open={aiOpen} onClose={() => setAiOpen(false)} title={t("askQuestion")}>
         <AskAiPanel caseId={caseId} />

@@ -1,5 +1,6 @@
 "use client";
 
+import type { LanguageCode } from "@/domain/user";
 import { cn } from "@/lib/cn";
 import { Square, Volume2 } from "lucide-react";
 import { useLocale, useTranslations } from "use-intl";
@@ -30,12 +31,21 @@ function useHasVoice(lang: string) {
 
 /**
  * Reads text aloud with the phone's own voice, for people who find reading
- * hard. Hidden when the phone has no voice for the language.
+ * hard. Hidden when the phone has no voice for the language. `lang` is the
+ * language the text is written in, when that is not the page's.
  */
-export function ListenButton({ text, className }: { text: string; className?: string }) {
+export function ListenButton({
+  text,
+  lang: written,
+  className,
+}: {
+  text: string;
+  lang?: LanguageCode;
+  className?: string;
+}) {
   const t = useTranslations("common");
   const locale = useLocale();
-  const lang = SPEECH_LANG[locale];
+  const lang = SPEECH_LANG[written ?? locale];
   const hasVoice = useHasVoice(lang);
   const [speaking, setSpeaking] = useState(false);
   const speakingRef = useRef(false);

@@ -34,7 +34,7 @@ export default function LawyerProfilePage() {
   useEffect(() => {
     void lawyerRepository.getById(lawyerId).then((r) => {
       if (r.ok) setLawyer(r.data);
-      else setError(r.message);
+      else setError("This profile could not be opened.");
       setSaved(isBookmarked(lawyerId));
     });
   }, [lawyerId]);

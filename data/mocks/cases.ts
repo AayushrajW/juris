@@ -53,6 +53,7 @@ export const DEMO_DOCUMENTS: UploadedDocument[] = [
     kind: "pdf",
     previewUrl: "/demo/tenancy-notice.svg",
     uploadStatus: "simulated",
+    createdAt: "2026-08-12T09:10:00.000Z",
   },
   {
     id: "doc-consumer",
@@ -63,5 +64,6 @@ export const DEMO_DOCUMENTS: UploadedDocument[] = [
     kind: "image",
     previewUrl: "/demo/warranty-card.svg",
     uploadStatus: "simulated",
+    createdAt: "2026-08-08T14:02:00.000Z",
   },
 ];

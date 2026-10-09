@@ -65,10 +65,21 @@ CI (`.github/workflows/ci.yml`) runs type-check, lint, tests, build and a depend
 - `app/` — routes and layouts. `proxy.ts` protects every route that is not on its public list and sets the content security policy.
 - `components/` — interface pieces. `components/i18n/` holds the language switcher.
 - `domain/` — typed models.
-- `services/` — interfaces the screens call; `services/mock/` is the current, browser-only implementation.
+- `services/` — what the screens may ask for. `services/types.ts` is the contract: no call takes a user id, lists come in pages, failures are codes the screens translate, and reading a problem is a background job. `services/mock/` is the current, browser-only implementation.
 - `data/mocks/` — sample people, cases and explanations.
 - `messages/` — interface text, one file per language.
 - `lib/` — helpers. `lib/helplines.ts` holds the official phone numbers on the Free help screen; re-check them every three months.
-- `tests/` — unit tests.
+- `tests/` — unit tests. `tests/contracts.test.ts` checks everything the service contract promises; a real backend must pass the same suite.
 
 The product name is one constant, `APP_NAME` in `lib/constants.ts`.
+
+### Trying the error screens
+
+The demo services never fail by themselves. To see what the screens do when something does, open the browser console on any page and run one of these, then use the app:
+
+```js
+sessionStorage.setItem("juris-mock-fault", "unavailable"); // or any other code in domain/result.ts
+sessionStorage.setItem("juris-mock-fault", "unauthenticated"); // the session ends: signs you out, as it would for real
+sessionStorage.setItem("juris-mock-fault", "job_failed"); // the next reading of a problem fails
+sessionStorage.removeItem("juris-mock-fault"); // back to normal
+```

@@ -4,8 +4,8 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 ## How to read this
 
-- **Status on 9 October 2026:** 86 findings are fixed and stay listed with what was done. 30 more are partly done or switched off.
-- **Open findings:** 11 critical, 19 high, 69 medium, 21 low. Several describe the same root cause from different angles (for example the fake sign-in appears under security, correctness and architecture).
+- **Status on 10 October 2026:** 103 findings are fixed and stay listed with what was done. 35 more are partly done or switched off.
+- **Open findings:** 10 critical, 12 high, 60 medium, 21 low. Several describe the same root cause from different angles (for example the fake sign-in appears under security, correctness and architecture).
 - **Severity** is judged against a public launch handling real people's legal papers, not against a demo.
 - **Effort:** S is under half a day, M is up to about three days, L is a week or more.
 - **Status** says how far each finding has been checked. "Reproduced first-hand" means it was observed happening in the running app, or confirmed with tooling such as `npm audit`. "Code review" means a reviewer read the code and reported it; "Confirmed by a second reviewer" means an independent reviewer re-read the code and agreed.
@@ -51,11 +51,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Impact:** Identity and role are client-authoritative. A stale or garbage cookie left by a previous person silently logs the next visitor in as Meera Iyer (middleware.ts:32 even redirects them from /sign-in to /dashboard). Line 49 returns the localStorage user without consulting the cookie, so that 'session' never expires, and editing juris-mock-v1.user in devtools changes id/email/role at will. The user.id from this object is what pages pass to the data layer (dashboard/page.tsx:26, cases/new/page.tsx:87), so with a backend it becomes an impersonation primitive. The regex at line 51 is unanchored and also matches any cookie whose name merely ends in juris_session.
 - **Fix:** Delete the fabrication branch (lines 50-55) and stop persisting the user in MockStore. Resolve the session on the server: read and verify the cookie in app/layout.tsx (or a GET /api/session handler) and pass the resulting user into SessionProvider as an initial prop; useSession.refresh() should refetch from that endpoint. Roles must come from verified token claims, never from client storage.
 
-### SEC-04 · high · Every account resolves to the same user id ("user-meera"), so all users share one data partition
+### SEC-04 · fixed · Every account resolves to the same user id ("user-meera"), so all users share one data partition
 
 - **Where:** `services/mock/store.ts:82`
 - **Effort:** S
-- **Status:** Adjusted by a second reviewer: True: demoUserFromName spreads DEMO_USER so id is always "user-meera" (store.ts:80-85, data/mocks/user.ts:4) and listByCitizen filters on it. Today the impact is limited to people sharing one browser profile because the store is localStorage, so it overlaps SEC-07; the 'single tenant' outcome is a forward-looking risk, not a present one.
+- **Status:** Fixed in Phase 1 (service contracts): each person gets their own id, and signing in as someone else clears the first person's data. Real accounts still wait for phone sign-in.
 - **Impact:** A second person who signs in with a different email on the same browser receives id user-meera, and caseRepository.listByCitizen(user.id) returns the first person's cases, narratives, documents, AI chats and advocate messages. If this id scheme were carried into a backend, every citizen would be in a single tenant.
 - **Fix:** Take user ids only from the identity provider (uid). Remove demoUserFromName, namespace every client-side cache key by uid, and seed DEMO_CASES only for an explicit demo account behind a flag rather than for every session (services/mock/store.ts seed()).
 
@@ -89,18 +89,18 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Fixed in Phase 0: per-request nonce content security policy and standard security headers. Checked in a production build.
 - **Fix:** In next.config.ts set poweredByHeader: false and add async headers() for source "/(.*)": Strict-Transport-Security: max-age=63072000; includeSubDomains; preload, X-Content-Type-Options: nosniff, X-Frame-Options: DENY, Referrer-Policy: strict-origin-when-cross-origin, Permissions-Policy: camera=(self), microphone=(), geolocation=(). Generate a per-request nonce in middleware.ts and emit a CSP (default-src 'self'; script-src 'self' 'nonce-...' 'strict-dynamic'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self' plus API origins; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'), starting in Report-Only. Add Cache-Control: no-store for the citizen routes.
 
-### SEC-10 · medium · Service contract lets the client name the citizen: listByCitizen(citizenId) and createDraft(citizenId, ...) are IDOR by design
+### SEC-10 · fixed · Service contract lets the client name the citizen: listByCitizen(citizenId) and createDraft(citizenId, ...) are IDOR by design
 
 - **Where:** `services/types.ts:41`
 - **Effort:** M
-- **Status:** Adjusted by a second reviewer: services/types.ts:41 and :43 do take citizenId from the caller, and pages pass user.id. With the mock there is nothing to exploit; it is a contract-design risk for a future backend, which would have to derive identity from the session.
+- **Status:** Fixed in Phase 1 (service contracts): no method takes a user id; the service works out who is asking from the session.
 - **Fix:** Remove citizenId from the public contract: listMine() and create(input). Implement them as server actions or route handlers where the uid is derived from the verified session (requireUser()), never from the request body. Mirror it in Firestore rules (allow read, write: if request.auth.uid == resource.data.citizenId) and add a negative test that user A cannot list or create for user B.
 
-### SEC-11 · medium · All by-id reads and writes (case, document, description, analysis, status) have no owner scoping
+### SEC-11 · fixed · All by-id reads and writes (case, document, description, analysis, status) have no owner scoping
 
 - **Where:** `services/types.ts:42`
 - **Effort:** M
-- **Status:** Adjusted by a second reviewer: getById and the document/analysis lookups are id-only (types.ts:42-54, mock/cases.ts:18) and ids come from the URL. Same reasoning as SEC-10: real in the contract, hypothetical in impact until a server exists, and largely a duplicate of SEC-10.
+- **Status:** Fixed in Phase 1 (service contracts): every read and write by id checks that the thing belongs to the person asking, and reports someone else's as not found. The contract tests check it for every method.
 - **Fix:** Every by-id operation must resolve the caller from the session and enforce record.citizenId === uid on the server, returning not_found (not a distinct forbidden) to avoid an existence oracle. Centralise this in one server helper (for example getOwnedCase(uid, caseId)) used by cases, documents, analyses and chat, and back it with storage rules scoped to users/{uid}/cases/{caseId}/** as the plan already proposes (docs/PHASE1_IMPLEMENTATION_PLAN.md:667).
 
 ### SEC-12 · medium · Composition root is client-side: wiring Firebase/Gemini in as instructed would ship secrets and authorisation logic to the browser
@@ -135,14 +135,14 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `components/ui/FileDropzone.tsx:53`
 - **Effort:** M
-- **Status:** Partly done: the browser-side check is tightened. Server-side checks arrive with real uploads (Phase 2).
+- **Status:** Partly done: the service applies the same type and size rules as the form. It still trusts the type the phone reports; checking the file's own bytes arrives with real uploads (Phase 2).
 - **Fix:** Client: make the check fail closed (require an allowed type or, when type is empty, an allowed extension), sniff magic bytes with file.slice(0, 12), and align allow-list, regex, accept and message; either support HEIC end-to-end (convert server-side) or drop it. Server (new upload endpoint): re-validate size and magic bytes, re-encode images to strip EXIF/GPS, flatten or sanitise PDFs, malware-scan, generate the storage object name server-side (never from fileName), enforce per-user quotas, and serve files from a separate origin via short-lived signed URLs with Content-Disposition: attachment and nosniff.
 
-### SEC-17 · medium · No way to delete a case, a document or an account, and no data export, in either the UI or the service contracts
+### SEC-17 · fixed · No way to delete a case, a document or an account, and no data export, in either the UI or the service contracts
 
 - **Where:** `services/types.ts:40`
 - **Effort:** M
-- **Status:** Adjusted by a second reviewer: No delete or export method exists on any interface in services/types.ts and settings/page.tsx:50 offers only Sign out. Because all data sits in the user's own browser, the legal exposure starts when a backend stores it; the present harm is the shared-device case in SEC-07.
+- **Status:** Fixed in Phase 1 (service contracts): a person can delete a problem, download everything held about them, and delete everything, from the screens and in the contract.
 - **Fix:** Add deleteCase(caseId), deleteDocument(documentId), deleteAccount() and exportMyData() to the contracts and implement them server-side with cascading deletion of documents, analyses, chats and threads plus storage objects. Add 'Delete this problem', 'Download my data' and 'Delete my account' controls in app/(citizen)/settings/page.tsx and the case page, define a retention schedule for abandoned cases, and record deletions in an audit log.
 
 ### SEC-18 · fixed · /assistant?q= auto-submits a chat message on page load (state-changing GET)
@@ -152,11 +152,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Fixed in Phase 0: a question in the address is no longer sent, or read, at all.
 - **Fix:** Use q only to pre-fill the input (setText(seedQuestion)) and require an explicit Send press; then router.replace("/assistant") to drop it from the URL. When the chat endpoint exists make it POST-only with an Origin check and per-user rate limits.
 
-### SEC-19 · medium · Chat and thread stores accept arbitrary ids taken from the URL, with no existence or ownership check
+### SEC-19 · fixed · Chat and thread stores accept arbitrary ids taken from the URL, with no existence or ownership check
 
 - **Where:** `services/mock/chat.ts:54`
 - **Effort:** S
-- **Status:** Reproduced first-hand
+- **Status:** Fixed in Phase 1 (service contracts): questions can only be asked about a problem that exists and belongs to the person asking.
 - **Fix:** Validate ids against a strict pattern (for example /^[A-Za-z0-9_-]{1,64}$/) at the page boundary and in each service; have chat.send/list first resolve the case via the owner-scoped lookup from SEC-11 and return not_found otherwise; have lawyerChat.send verify the advocate exists via lawyerRepository.getById; store keyed collections in a Map or prefixed keys rather than a bare object; encodeURIComponent ids when building URLs (messages/page.tsx:135); add app/error.tsx.
 
 ### SEC-20 · fixed · Route protection is fail-open: two hand-maintained lists in middleware, no deny-by-default, and no coverage for future API routes
@@ -344,7 +344,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `app/(citizen)/settings/page.tsx:12`
 - **Effort:** M
-- **Status:** Confirmed by a second reviewer
+- **Status:** Partly done: a person can download and erase their own data. Withdrawing consent, nominating someone and complaining arrive with the consent work.
 - **Impact:** DPDP ss.11-14 give users rights to a summary of their data and who it was shared with, correction and erasure, grievance redress and nomination; the DPDP Rules require the company to publish how to exercise them and to resolve grievances within 90 days (verified via rule summaries). SPDI Rule 5(6)-(7) already gives review, correction and withdrawal rights. A user who uploads the wrong paper, or whose dispute has ended, cannot remove anything. Because the interfaces in services/types.ts are the contract the real backend will implement, the gap will be carried into production unless it is fixed at the interface level.
 - **Fix:** Add to services/types.ts: `CaseRepository.delete(caseId)`, `DocumentService.remove(documentId)`, `AuthService.deleteAccount()`, `AuthService.exportMyData()`, and consent-withdrawal methods; implement them in the mock store. Add a 'Your data' section to settings/page.tsx with download, correct name/email, delete a case, delete account, withdraw consent, nominate a person, and a link to the grievance page. Add a delete control on the case page. Define server-side erasure that also covers backups and processor copies. Lawyer sign-off: REQUIRED on timelines and exceptions.
 
@@ -523,11 +523,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 57 findings: 1 critical, 6 high, 24 medium, 26 low.
 
-### COR-01 · critical · All accounts share one identity and one data blob; sign-out leaves everything for the next user
+### COR-01 · fixed · All accounts share one identity and one data blob; sign-out leaves everything for the next user
 
 - **Where:** `services/mock/store.ts:82`
 - **Effort:** L
-- **Status:** Confirmed by a second reviewer
+- **Status:** Fixed in Phase 1 (service contracts): each person gets their own id; sign-out, and signing in as someone else, leave nothing behind (the sign-out half was done in Phase 0).
 - **Impact:** Every sign-in and sign-up resolves to the same user id, and cases, documents, descriptions, AI chats and lawyer threads sit in one un-partitioned localStorage key. Sign-out only nulls `user`. Signing out and signing in or up with a different email shows the previous person's cases, narratives, AI chat history, lawyer messages and saved lawyers (lib/bookmarks.ts uses a global key too). On a shared family phone or cyber-cafe PC this exposes sensitive legal data. No repository method checks ownership (getById, getByCaseId, chat list/send, listThreads take no user).
 - **Fix:** Issue unique user ids from real auth and store data server-side keyed by the authenticated uid, with ownership checks in every repository method. Interim for the mock: derive the id from the normalised email in demoUserFromName, namespace STORAGE_KEY and the bookmarks key by user id, add citizenId to chats and lawyerThreads, and make signOut remove both keys.
 
@@ -621,18 +621,18 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Store `{ version, data }`, validate with a schema (e.g. zod safeParse) and run explicit migrations. On failure copy the raw value to a `juris-mock-v1.corrupt-<ts>` key and tell the user instead of reseeding silently. Longer term this data belongs on a server.
 
-### COR-15 · medium · Demo fixtures are forced into every account and resurrected when lists are empty; empty states are unreachable
+### COR-15 · fixed · Demo fixtures are forced into every account and resurrected when lists are empty; empty states are unreachable
 
 - **Where:** `services/mock/store.ts:56`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Fixed in Phase 1 (service contracts): a removed sample stays removed and the empty states can be reached.
 - **Fix:** Seed only on first run for an explicit demo account, behind a flag, and never reseed on empty arrays (`parsed.cases ?? []`). Change isDemo to boolean and set it false for user-created cases. Parameterise or remove persona-specific fixture text. Verify the three empty states once real users start with zero cases.
 
-### COR-16 · medium · No rejection handling around any service call: thrown errors leave buttons stuck and promises unhandled
+### COR-16 · fixed · No rejection handling around any service call: thrown errors leave buttons stuck and promises unhandled
 
 - **Where:** `app/(citizen)/cases/new/page.tsx:87`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Fixed in Phase 1 (service contracts): services answer with a failure code and never throw; every screen shows the failure in words and frees its buttons.
 - **Fix:** Use try/catch/finally in every submit handler with setPending(false) in finally and a visible error. Make the service layer convert thrown errors into `{ ok: false, code: "unavailable" }`. Add `.catch` to the effect loaders and render error states with a Retry button.
 
 ### COR-17 · fixed · Wizard field "What would a good ending look like?" is saved into `whatHappened`
@@ -688,7 +688,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `services/mock/analysis.ts:19`
 - **Effort:** L
-- **Status:** Code review
+- **Status:** Partly done: a reading can fail and be tried again, and a problem's details can be corrected. A problem marked "Needs you" still has no screen for adding the missing detail.
 - **Fix:** Add repository methods addDocument, updateDescription, delete and reanalyse, and case-page actions for them. A needs_more_info case should render each missing-information item with an "Add" action. Have startProcessing return the status that the analysis outcome warrants, including error with a retry.
 
 ### COR-29 · medium · Lawyer "% Match" is inflated and partly fabricated: 58-point floor, a default-language bonus for everyone, experience counted as relevance
@@ -733,11 +733,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Add app/error.tsx and app/(citizen)/error.tsx (client components with reset() and a "Back to home" link) plus app/global-error.tsx, and report errors to monitoring from them. Add app/(citizen)/loading.tsx. Guard the listed lookups with fallbacks.
 
-### COR-39 · medium · Most data-loading effects have no cancellation or ordering guard
+### COR-39 · fixed · Most data-loading effects have no cancellation or ordering guard
 
 - **Where:** `app/(citizen)/dashboard/page.tsx:25`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Fixed in Phase 1 (service contracts): every loading effect ignores an answer that arrives after the page has moved on.
 - **Fix:** Introduce one data hook layer (TanStack Query or SWR, or a small useAsync with AbortController) keyed by user/case/lawyer id, giving cancellation, dedupe, error and retry. Add batch endpoints (documents by user, next deadline per user) to remove the N+1 patterns.
 
 ### COR-M01 · fixed · Session cookie expires after 14 days and is never renewed, while the localStorage account persists
@@ -989,19 +989,19 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Impact:** Swapping a real implementation in at this point means the Gemini key, DB credentials and all authorisation logic would execute in the user's browser. There is no server-side code path anywhere in the app, so there is nowhere to enforce access control, hold secrets, meter cost or validate LLM output. The advertised 'swap services/index.ts later' (README.md:31) cannot work as written.
 - **Fix:** Split the layer in two. (1) `server/` (each file starts with `import "server-only"`) holds the real repositories and the AI pipeline. (2) `services/` becomes thin browser clients that call versioned route handlers `app/api/v1/cases/route.ts`, `.../cases/[id]/analysis/route.ts`, `.../conversations/[id]/messages/route.ts` (or server actions for simple mutations). Keep the existing interfaces as the client contract so pages barely change. Host on Vercel with functions pinned to `bom1` (Mumbai) so compute sits next to an India-region database; this keeps one repo/one deploy, which is the fastest path for a small team.
 
-### ARC-02 · high · Identity is supplied by the caller and no method carries a principal - IDOR by contract
+### ARC-02 · fixed · Identity is supplied by the caller and no method carries a principal - IDOR by contract
 
 - **Where:** `services/types.ts:41`
 - **Effort:** M
-- **Status:** Adjusted by a second reviewer: Signatures at services/types.ts:41-44 and the unchecked lookup at services/mock/cases.ts:18 are exactly as quoted. It is a contract-design hazard, not a live breach: there is no backend today and a server deriving the principal from the session would neutralise it, so high rather than critical.
+- **Status:** Fixed in Phase 1 (service contracts): identity comes from the session, never from the caller.
 - **Impact:** If these signatures are implemented 1:1 against a backend, any signed-in user can list another citizen's cases by passing their id, read any case/analysis/document/chat by guessing a caseId, and flip any case's status. For legal documents this is the worst-case breach.
 - **Fix:** Remove identity from the client contract: `listMine(params)`, `create(input)`; delete `updateStatus` from the client-facing interface (status transitions belong to the server job). Derive the principal from the verified session inside each route handler and enforce again in the database with Postgres Row Level Security (`citizen_id = auth.uid()`) on cases, documents, analyses, conversations, messages. Add a contract test that user B gets `forbidden`/`not_found` for user A's ids.
 
-### ARC-09 · high · Analysis is generated synchronously inside createDraft and 'processing' is a promise held by a browser tab; there is no job model
+### ARC-09 · fixed · Analysis is generated synchronously inside createDraft and 'processing' is a promise held by a browser tab; there is no job model
 
 - **Where:** `services/mock/cases.ts:58`
 - **Effort:** L
-- **Status:** Confirmed by a second reviewer
+- **Status:** Fixed in Phase 1 (service contracts): reading a problem is a background job: start returns at once, the page polls, and the problem finishes whether or not a page is open. A failed reading can be tried again.
 - **Impact:** Real OCR + LLM takes 20-120 seconds and fails intermittently. With this contract the work is tied to an open tab, is re-triggered on refresh, back-navigation and React StrictMode double-mount (double LLM spend), has no progress, retry or failure state (nothing ever sets status `error`), and the request would exceed serverless time limits.
 - **Fix:** Contract: `requestAnalysis(caseId, idempotencyKey) -> {jobId}`, `getJob(jobId) -> {stage: queued|ocr|extracting|drafting|review|ready|failed, progress, errorCode}`, `getAnalysis(caseId, version?)`. Create the job server-side when the case is submitted, not on page mount. Persist in `analysis_jobs` (attempt, started_at, finished_at, error_code). Run the steps with Inngest step functions triggered from the route handler (retries, concurrency caps and timeouts out of the box; put only ids in event payloads so document content never leaves the Mumbai database). The processing page polls `getJob` every 2-3 s with TanStack Query `refetchInterval` (simple and robust on poor networks) and sends an SMS/WhatsApp notification when ready so the user can close the tab.
 
@@ -1009,23 +1009,23 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `services/types.ts:59`
 - **Effort:** M
-- **Status:** Confirmed by a second reviewer
+- **Status:** Partly done: the thread is paged from the newest message and a retried question is never answered twice. Replies that appear word by word wait for the real model (Phase 2).
 - **Impact:** With a real model the user sees nothing for 5-20 seconds, can submit the same question repeatedly, and each reply re-downloads the whole history. Streaming cannot be added 'without changing section layout' (spec line 659) because the return type and the panel's replace-the-list logic both assume a single final array.
 - **Fix:** Change to `list(conversationId, {cursor, limit})` and `send(conversationId, content, {clientMessageId}): AsyncIterable<ChatEvent>` (`delta | done | error | refusal`). Implement as an SSE route handler using the Vercel AI SDK `streamText`; persist user and assistant messages server-side keyed by `clientMessageId` for idempotency. In AskAiPanel: optimistic user bubble, streaming assistant bubble, disable input while in flight, Stop button via AbortController, retry on error, and a per-message 'not legal advice' footer generated by the UI, not the model.
 
-### ARC-11 · high · ServiceResult error taxonomy is too thin and nothing handles thrown errors
+### ARC-11 · fixed · ServiceResult error taxonomy is too thin and nothing handles thrown errors
 
 - **Where:** `domain/result.ts:3`
 - **Effort:** M
-- **Status:** Confirmed by a second reviewer
+- **Status:** Fixed in Phase 1 (service contracts): nine failure codes with reasons, a field name and a wait time; screens translate the code and never show service text.
 - **Impact:** A real backend produces unauthenticated, forbidden, rate_limited, quota_exceeded, payload_too_large, conflict, network and timeout outcomes; none can be expressed, so the UI cannot redirect to sign-in, show 'try again in a minute' or retry. A rejected fetch leaves spinners stuck: app/(citizen)/cases/new/page.tsx:85-102 sets `setPending(true)` and never resets it if `createDraft` throws; app/(auth)/sign-up/page.tsx:23 ignores the result entirely.
 - **Fix:** Replace with `{ ok:false; code: "unauthenticated"|"forbidden"|"not_found"|"invalid"|"conflict"|"rate_limited"|"quota_exceeded"|"payload_too_large"|"unavailable"|"network"|"timeout"; retryable: boolean; retryAfterSec?: number; fieldErrors?: Record<string,string>; requestId?: string }` and drop `message` (UI maps code -> localised copy). Add one `lib/http.ts` fetch wrapper that converts HTTP status and thrown errors into this shape so service methods never throw, and a global handler that routes `unauthenticated` to /sign-in. Make every AuthService method return ServiceResult.
 
-### ARC-13 · high · Mock store is one global blob: shared-device data exposure after sign-out, unguarded quota errors, cross-tab lost updates, server-side singleton
+### ARC-13 · fixed · Mock store is one global blob: shared-device data exposure after sign-out, unguarded quota errors, cross-tab lost updates, server-side singleton
 
 - **Where:** `services/mock/store.ts:36`
 - **Effort:** S
-- **Status:** Confirmed by a second reviewer
+- **Status:** Fixed in Phase 1 (service contracts): storage writes are guarded, sign-out clears everything, and a second tab can no longer bring a signed-out person's data back.
 - **Impact:** If this prototype is put in front of real people (pilot, demo day, shared phone or cyber cafe), a user's typed legal narrative, case titles and chats stay in plaintext on the device after Sign out and are shown to the next person who signs in with any email, because all users share the id `user-meera`. A full or blocked localStorage throws inside `updateStore` and freezes the wizard. Two tabs overwrite each other's writes. If any service is ever called from a Server Component, all visitors share one in-memory store.
 - **Fix:** Interim, before any external demo: on `signOut` remove both `juris-mock-v1` and `juris-lawyer-bookmarks`; wrap `setItem` in try/catch and return `{ok:false, code:"unavailable"}`; add `import "client-only"` to services/mock/store.ts; show a visible 'demo data is stored on this device' banner. Permanently: keep the mock only for tests/Storybook (ARC-28) and move real state to Postgres.
 
@@ -1065,7 +1065,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `package.json:5`
 - **Effort:** M
-- **Status:** Partly done: 52 unit tests and a CI workflow are in the repository. CI has not run, because no remote exists yet. No end-to-end tests.
+- **Status:** Partly done: 199 tests, including a contract suite that any future backend must also pass, and a CI workflow. CI has not run, because no remote exists yet. No end-to-end tests.
 - **Impact:** Nothing protects the deadline logic, the authorisation rules or the upload journey from regressions, and nothing stops a vulnerable or broken build from being deployed.
 - **Fix:** Vitest + Testing Library for `domain/deadline`, `lib/lawyerMatch`, `lib/format` and store logic; a shared contract suite (`services/__contract__/*.contract.ts`) executed against both the mock and the real implementation (local Supabase via `supabase start`), including cross-user access denial; Playwright on a mobile viewport for sign-in -> new case -> upload -> processing -> analysis -> ask; promptfoo evals for the AI pipeline. GitHub Actions workflow on every PR: `npm ci`, typecheck, lint, vitest, `next build`, `npm audit --omit=dev --audit-level=high`, Playwright smoke; protect `main`.
 
@@ -1073,7 +1073,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `app/(citizen)/dashboard/page.tsx:32`
 - **Effort:** M
-- **Status:** Adjusted by a second reviewer: All quoted patterns are present (dashboard:32 fan-out, documents:25-26 sequential loop, cases/page.tsx:23 ignores errors, hooks/ has only useSession). With a synchronous localStorage mock none of it is a user-visible fault today; it is rework debt that only bites after a backend exists, so medium.
+- **Status:** Partly done: the home screen and the papers list each make one or two requests, however many problems there are. There is still no shared cache.
 - **Fix:** Adopt TanStack Query v5: `hooks/useCases.ts`, `useCase(id)`, `useCaseAnalysis(id)`, `useDocuments()`, `useLawyers(filters)`, `useConversation(id)` with shared query keys, retry/backoff and stale times; pages consume hooks only (enforce with ESLint, see ARC-49). Add aggregate server endpoints so the client never fans out: `GET /api/v1/me/dashboard` (recent cases + next deadline) and `GET /api/v1/me/documents`. Where a page is read-only, prefer an async Server Component instead (ARC-25).
 
 ### ARC-14 · medium · Demo-only literal types are baked into the domain model
@@ -1087,7 +1087,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `services/types.ts:48`
 - **Effort:** M
-- **Status:** Adjusted by a second reviewer: Facts confirmed (single-document `.find` at cases.ts:88, six-field UploadedDocument, no attach-later method, fixture next step at analyses.ts:443 asks for an upload that cannot be done). Largely a restatement of ARC-04's missing upload pipeline; the distinct part, one file per case and the needs_more_info dead end, is a medium design gap.
+- **Status:** Partly done: a problem can hold several papers and papers can be added and removed. Storage, integrity and text-extraction fields arrive with real uploads (Phase 2).
 - **Fix:** `documents(id, case_id, owner_id, storage_key, sha256, mime_type_sniffed, byte_size, page_count, language_detected, av_scan_status, ocr_status, ocr_engine, ocr_text_key, ocr_confidence, uploaded_at, deleted_at, purge_after)` plus `document_pages(document_id, page_no, text, confidence, image_key)`. Service: `listByCase`, `createUpload`, `confirmUpload`, `remove` (ARC-04). FileDropzone accepts multiple files and camera capture (`capture="environment"`). Adding a document to a `needs_more_info` case enqueues analysis version n+1.
 
 ### ARC-19 · medium · No OCR/text-extraction stage for scanned or vernacular documents
@@ -1125,11 +1125,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** When the backend lands, convert read screens (dashboard, cases list, case analysis, documents, lawyers list/profile) to async Server Components that read the session from cookies and call `server/*` directly, streaming with `<Suspense>`; keep the wizard, chat, filters and sheets as client islands; use server actions for small mutations (bookmark, rename, delete). Move `SessionProvider` into `app/(citizen)/layout.tsx` and `app/(auth)/layout.tsx`. Ensure per-user routes are dynamic and respond with `Cache-Control: private, no-store`.
 
-### ARC-26 · medium · No pagination, cursor, sort or search parameters in any list contract; filters are applied in the browser
+### ARC-26 · fixed · No pagination, cursor, sort or search parameters in any list contract; filters are applied in the browser
 
 - **Where:** `services/types.ts:63`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Fixed in Phase 1 (service contracts): lists come in pages with a cursor, in an order that does not shift, and the status filter is applied by the service.
 - **Fix:** Introduce `Page<T> = { items: T[]; nextCursor: string | null }` and `ListParams = { cursor?: string; limit?: number; sort?: string }`. Change to `caseRepository.listMine(params & {status?})`, `lawyerRepository.search({filters, q, ...params})`, `chatService.list(conversationId, params)`, `lawyerChatService.listThreads(params)`. Implement with keyset pagination in Postgres and `pg_trgm`/full-text search for advocate name and area; replace the case-page directory load with `lawyerRepository.suggestForCase(caseId, {limit: 4})` computed server-side.
 
 ### ARC-27 · fixed · /assistant silently attaches a general question to the user's most recent case, and ?q= auto-sends on load
@@ -1164,7 +1164,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `services/types.ts:40`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Partly done: problems can be changed and removed, and papers removed. No audit trail yet; that needs the database.
 - **Fix:** Add `rename`, `archive`, `remove` to CaseRepository and `remove` to DocumentService. Add `deleted_at` to cases, documents, analyses, messages with RLS hiding deleted rows, and a pg_cron job that hard-deletes rows and storage objects after the grace period. Add append-only `audit_events(id, at, actor_id, actor_role, action, entity_type, entity_id, ip, user_agent, metadata)` written by Postgres triggers and by route handlers for reads of sensitive entities (document view, analysis view by non-owner).
 
 ### ARC-32 · medium · Advocate messaging has no citizen, case, consent or sender identity; replies and presence are fabricated
@@ -1188,11 +1188,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Fixed with the multilingual work: all interface text is in message files in three languages, checked by tests.
 - **Fix:** Adopt `next-intl` with an `app/[locale]/` segment and message catalogues `messages/en.json` and `messages/hi.json` first, then Marathi, Tamil, Bengali, Telugu, Kannada. Load Noto Sans + Noto Sans Devanagari (and per-script fonts on demand) with `next/font` and `display: "swap"`. Store `analysis.language` and generate the explanation in the user's language while quoting the document in its original script. Maintain a reviewed legal-term glossary per language and include each language in the eval set.
 
-### ARC-35 · medium · Case lifecycle has no state machine: createDraft creates 'processing', 'draft' and 'error' are never set
+### ARC-35 · fixed · Case lifecycle has no state machine: createDraft creates 'processing', 'draft' and 'error' are never set
 
 - **Where:** `services/mock/cases.ts:33`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Fixed in Phase 1 (service contracts): a problem is a draft until its reading starts, then processing, then ready or error, driven by the job.
 - **Fix:** Server-owned transitions `draft -> submitted -> processing -> ready | needs_more_info | failed`, enforced in one `server/cases/transitions.ts` function and a DB check constraint. Split the contract into `saveDraft(input)` (autosaved per step) and `submit(caseId, consent)`. Surface `failed` with a Retry action that enqueues a new job.
 
 ### ARC-36 · fixed · Four analysis sections are never rendered and the wizard writes 'desired outcome' into the wrong field
@@ -1333,11 +1333,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Impact:** When getAnalysis fails (draft/error cases, or a user who left the processing screen early) setError is called but the error branch at line 84 requires `error && !record`, so the user sees an endless pulsing skeleton with no message or way out. CaseCard sends every non-processing status here.
 - **Fix:** In app/(citizen)/cases/[caseId]/page.tsx render an error/empty state when `record && error && !analysis` (title, message, 'Try reading again' linking to /cases/{id}/processing, and Back to My problems) before the skeleton branch.
 
-### UX-02 · high · Every route has the same document title (WCAG 2.4.2)
+### UX-02 · fixed · Every route has the same document title (WCAG 2.4.2)
 
 - **Where:** `app/layout.tsx:14`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Fixed in Phase 1 (service contracts): every page has its own title, sent from the server in the person's language.
 - **Impact:** All pages are "use client" and none exports metadata, so the `%s · Juris` template is never used; screen-reader users, browser history and Android task switcher all show one identical title for sign-in, dashboard, a case and messages.
 - **Fix:** Add a server layout.tsx (or split each page into a server page.tsx exporting `metadata = { title: 'My problems' }` plus a client component) for each route under app/(auth) and app/(citizen); for cases/[caseId] set document.title from record.title in an effect.
 
@@ -1349,11 +1349,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Impact:** The three choices are plain buttons with no role=radio/aria-checked or aria-pressed, so assistive tech never announces which is chosen (4.1.2), and sighted users get only a pale blue tint versus white (1.4.1). "both" is preselected, which is invisible to a screen reader.
 - **Fix:** In app/(citizen)/cases/new/page.tsx wrap the options in a <fieldset><legend>How do you want to start?</legend> using real <input type="radio" name="mode"> inside styled labels (or role="radiogroup" with aria-checked and arrow keys) and add a check icon to the selected card.
 
-### UX-04 · high · Wizard validation is one unassociated message; no required marking, no focus management between steps
+### UX-04 · fixed · Wizard validation is one unassociated message; no required marking, no focus management between steps
 
 - **Where:** `app/(citizen)/cases/new/page.tsx:199`
 - **Effort:** M
-- **Status:** Partly done: focus moves to each step and the story is marked required. Errors are not yet tied to individual fields.
+- **Status:** Fixed in Phase 1 (service contracts): each problem in the form is shown on its own field and focus moves to the first one.
 - **Impact:** Errors for title, file and story appear as a single paragraph at the bottom, never passed to the Input `error` prop, so no field gets aria-invalid/aria-describedby (3.3.1); required fields are not marked (3.3.2) while only one is labelled "(optional)". Changing step, or tapping 'See what to do' on the case page, swaps content without moving focus or announcing the new step, and the Stepper marks done steps by colour only.
 - **Fix:** In app/(citizen)/cases/new/page.tsx keep per-field error state and pass `error=` to Input/Textarea, add `required` plus a visible 'required' hint, focus the first invalid field on failure, and on step change focus a per-step <h2 tabIndex={-1}>; in components/ui/FileDropzone.tsx Stepper add visually hidden 'completed'/'current' text.
 
@@ -1481,7 +1481,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `app/(citizen)/settings/page.tsx:50`
 - **Effort:** M
-- **Status:** Partly done: language can be changed from My account. Profile edit and delete-my-data are not done.
+- **Status:** Partly done: My account offers language, download my data and delete everything. Changing the name shown is in the contract but has no screen yet.
 - **Fix:** In app/(citizen)/settings/page.tsx add an editable name field, a language selector, and a 'Delete everything on this device' action with a confirm dialog; add per-case delete on cases/[caseId]/page.tsx; state clearly what Sign out keeps or removes.
 
 ### UX-23 · fixed · Chat input is 14px single-line with no mobile keyboard hints and accepts empty sends

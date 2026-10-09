@@ -1,5 +1,8 @@
-import type { LawyerChatService } from "@/services/types";
+import { fail, ok } from "@/domain/result";
 import type { LawyerMessage } from "@/domain/thread";
+import { newId } from "@/lib/ids";
+import type { LawyerChatService } from "@/services/types";
+import { signedIn } from "./session";
 import { loadStore, updateStore } from "./store";
 
 const DEMO_REPLY =
@@ -7,27 +10,31 @@ const DEMO_REPLY =
 
 export const mockLawyerChatService: LawyerChatService = {
   async listThreads() {
-    return { ok: true, data: loadStore().lawyerThreads };
+    const who = signedIn();
+    if (!who.ok) return who;
+    return ok(loadStore().lawyerThreads);
   },
   async list(lawyerId) {
+    const who = signedIn();
+    if (!who.ok) return who;
     const thread = loadStore().lawyerThreads.find((t) => t.lawyerId === lawyerId);
-    return { ok: true, data: thread?.messages ?? [] };
+    return ok(thread?.messages ?? []);
   },
   async send(lawyerId, content) {
+    const who = signedIn();
+    if (!who.ok) return who;
     const trimmed = content.trim();
-    if (!trimmed) {
-      return { ok: false, code: "invalid", message: "Type a message first." };
-    }
+    if (!trimmed) return fail("invalid", { reason: "empty", field: "content" });
     const now = new Date().toISOString();
     const userMsg = {
-      id: `lm-${Date.now()}`,
+      id: `lm-${newId()}`,
       lawyerId,
       role: "user" as const,
       content: trimmed,
       createdAt: now,
     };
     const lawyerMsg = {
-      id: `lm-${Date.now()}-r`,
+      id: `lm-${newId()}`,
       lawyerId,
       role: "lawyer" as const,
       content: DEMO_REPLY,
@@ -46,15 +53,17 @@ export const mockLawyerChatService: LawyerChatService = {
       }
       return { ...s, lawyerThreads: threads };
     });
-    return { ok: true, data: next };
+    return ok(next);
   },
   async markRead(lawyerId) {
+    const who = signedIn();
+    if (!who.ok) return who;
     const next = updateStore((s) => ({
       ...s,
       lawyerThreads: s.lawyerThreads.map((t) =>
         t.lawyerId === lawyerId ? { ...t, unreadCount: 0 } : t,
       ),
     }));
-    return { ok: true, data: next.lawyerThreads };
+    return ok(next.lawyerThreads);
   },
 };

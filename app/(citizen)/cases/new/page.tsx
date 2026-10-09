@@ -4,15 +4,17 @@ import { AppPage } from "@/components/ui/AppKit";
 import { Button } from "@/components/ui/Button";
 import { Alert, Card, Skeleton } from "@/components/ui/Display";
 import { Checkbox, Input, Select, Textarea } from "@/components/ui/Field";
-import { FileDropzone, Stepper, type LocalFile } from "@/components/ui/FileDropzone";
-import { useSession } from "@/hooks/useSession";
+import { FileDropzone, Stepper } from "@/components/ui/FileDropzone";
+import { useErrorText } from "@/hooks/useErrorText";
 import { APP_NAME, MATTER_CATEGORIES } from "@/lib/constants";
 import { cn } from "@/lib/cn";
 import { clearNewCaseDraft, loadNewCaseDraft, saveNewCaseDraft } from "@/lib/drafts";
-import type { CaseSource, MatterCategory } from "@/domain/case";
-import { caseRepository } from "@/services";
+import { newId } from "@/lib/ids";
+import { MAX_TITLE_LENGTH, MIN_STORY_LENGTH, type CaseSource, type MatterCategory } from "@/domain/case";
+import type { ServiceError } from "@/domain/result";
+import { analysisService, caseService, documentService } from "@/services";
 import { Check, FileText, Layers, Mic } from "lucide-react";
-import { useTranslations } from "use-intl";
+import { useLocale, useTranslations } from "use-intl";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
@@ -24,7 +26,7 @@ const MODES = [
   { value: "both", icon: Layers, label: "modeBoth", hint: "modeBothHint" },
 ] as const;
 
-const MIN_STORY_LENGTH = 20;
+type FieldErrors = { title?: string; file?: string; story?: string };
 
 function parseMode(value: unknown): Mode | null {
   return value === "document" || value === "description" || value === "both" ? value : null;
@@ -64,9 +66,11 @@ function NewCaseForm() {
   const t = useTranslations("newCase");
   const common = useTranslations("common");
   const tMatter = useTranslations("matter");
+  const tFile = useTranslations("file");
+  const errorText = useErrorText();
+  const locale = useLocale();
   const router = useRouter();
   const search = useSearchParams();
-  const { user } = useSession();
 
   const [draft] = useState(loadNewCaseDraft);
   // A link such as /cases/new?mode=document skips the first question.
@@ -81,12 +85,20 @@ function NewCaseForm() {
   const [category, setCategory] = useState<MatterCategory>(isCategory(draft.category) ? draft.category : "tenancy");
   const [city, setCity] = useState(text(draft.city));
   const [stateName, setStateName] = useState(text(draft.stateName) || t("defaultState"));
-  const [file, setFile] = useState<LocalFile | null>(null);
+  const [file, setFile] = useState<File | null>(null);
   const [narrative, setNarrative] = useState(text(draft.narrative));
   const [outcomeWanted, setOutcomeWanted] = useState(text(draft.outcomeWanted));
   const [ack, setAck] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [pending, setPending] = useState(false);
+  // One id for what is being sent, so a second tap or a retry never makes a
+  // second case. It is renewed whenever the person goes back to change something.
+  const requestId = useRef<string>(newId());
+  // The same for the paper: one id per chosen file.
+  const paperRequest = useRef<{ file: File; id: string } | null>(null);
+  // What a try that stopped half way has already made.
+  const made = useRef<{ caseId: string; file?: File } | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const moved = useRef(false);
 
@@ -112,40 +124,90 @@ function NewCaseForm() {
     setStep(next);
   }
 
+  function clearFieldError(field: keyof FieldErrors) {
+    setFieldErrors((current) => (current[field] ? { ...current, [field]: undefined } : current));
+  }
+
   function checkDetails() {
-    if (!title.trim()) return setError(t("errTitle"));
-    if (wantsPaper && !file) return setError(t("errFile"));
-    if (wantsStory && narrative.trim().length < MIN_STORY_LENGTH) return setError(t("errStory"));
+    const problems: FieldErrors = {};
+    if (!title.trim()) problems.title = t("errTitle");
+    if (wantsPaper && !file) problems.file = t("errFile");
+    if (wantsStory && narrative.trim().length < MIN_STORY_LENGTH) problems.story = t("errStory");
+    setFieldErrors(problems);
+    setError(null);
+    // Take the person to the first thing that needs fixing.
+    const first = problems.title ? "title" : problems.file ? "paper" : problems.story ? "narrative" : null;
+    if (first) {
+      document.getElementById(first)?.focus();
+      return;
+    }
     goTo(2);
+  }
+
+  /**
+   * Whenever the person goes back to change something, a case that a stopped
+   * try left behind is dropped and the next try starts afresh. Carrying on
+   * with it would quietly keep the old name, story or paper.
+   */
+  function startAfresh() {
+    if (made.current) void caseService.remove(made.current.caseId);
+    made.current = null;
+    paperRequest.current = null;
+    requestId.current = newId();
+  }
+
+  function editDetails() {
+    startAfresh();
+    goTo(1);
+  }
+
+  function stop(problem: ServiceError) {
+    setPending(false);
+    // Something the person can put right goes back to the field it belongs to.
+    const fixable = problem.code === "invalid" || problem.code === "too_large";
+    const field = fixable ? problem.field : undefined;
+    if (field === "title" || field === "story" || field === "file") {
+      startAfresh();
+      goTo(1);
+      const paper = tFile(problem.reason === "file_size" ? "errSize" : "errType");
+      setFieldErrors({ [field]: field === "title" ? t("errTitle") : field === "story" ? t("errStory") : paper });
+      return;
+    }
+    setError(errorText(problem));
   }
 
   async function submit() {
     if (!ack) return setError(t("errAck"));
-    if (!user) return setError(t("errSession"));
     setPending(true);
     setError(null);
-    try {
-      const result = await caseRepository.createDraft(user.id, {
-        title,
-        category,
-        source,
-        city: city.trim() || undefined,
-        state: stateName.trim() || undefined,
-        document: wantsPaper ? (file ?? undefined) : undefined,
-        description: wantsStory
-          ? { narrative, whatOutcomeWanted: outcomeWanted.trim() || undefined }
-          : undefined,
-      });
-      if (!result.ok) {
-        setPending(false);
-        return setError(t("errSave"));
-      }
-      clearNewCaseDraft();
-      router.push(`/cases/${result.data.id}/processing`);
-    } catch {
-      setPending(false);
-      setError(t("errSave"));
+    // Three steps. A try that stops part way is picked up from where it stopped.
+    if (!made.current) {
+      const created = await caseService.create(
+        {
+          title,
+          category,
+          source,
+          city: city.trim() || undefined,
+          state: stateName.trim() || undefined,
+          story: wantsStory ? { narrative, whatOutcomeWanted: outcomeWanted.trim() || undefined } : undefined,
+        },
+        { requestId: requestId.current },
+      );
+      if (!created.ok) return stop(created.error);
+      made.current = { caseId: created.data.id };
     }
+    const { caseId } = made.current;
+    if (wantsPaper && file && made.current.file !== file) {
+      if (paperRequest.current?.file !== file) paperRequest.current = { file, id: newId() };
+      const added = await documentService.upload(caseId, file, { requestId: paperRequest.current.id });
+      if (!added.ok) return stop(added.error);
+      made.current = { caseId, file };
+    }
+    // The reading carries on by itself from here, even if this page is closed.
+    const job = await analysisService.start(caseId, { language: locale });
+    if (!job.ok) return stop(job.error);
+    clearNewCaseDraft();
+    router.push(`/cases/${caseId}/processing`);
   }
 
   const errorLine = error ? (
@@ -216,8 +278,13 @@ function NewCaseForm() {
             id="title"
             label={t("titleLabel")}
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              clearFieldError("title");
+            }}
             placeholder={t("titlePlaceholder")}
+            maxLength={MAX_TITLE_LENGTH}
+            error={fieldErrors.title}
             required
           />
           <Select
@@ -251,7 +318,16 @@ function NewCaseForm() {
           {wantsPaper ? (
             <div>
               <p className="mb-2 text-sm font-medium text-ink">{t("documentLabel")}</p>
-              <FileDropzone value={file} onChange={setFile} label={t("documentLabel")} />
+              <FileDropzone
+                id="paper"
+                value={file}
+                onChange={(next) => {
+                  setFile(next);
+                  clearFieldError("file");
+                }}
+                label={t("documentLabel")}
+                error={fieldErrors.file}
+              />
             </div>
           ) : null}
           {wantsStory ? (
@@ -261,7 +337,11 @@ function NewCaseForm() {
                 label={t("storyLabel")}
                 hint={t("storyHint")}
                 value={narrative}
-                onChange={(e) => setNarrative(e.target.value)}
+                onChange={(e) => {
+                  setNarrative(e.target.value);
+                  clearFieldError("story");
+                }}
+                error={fieldErrors.story}
                 required
               />
               <Input
@@ -302,7 +382,7 @@ function NewCaseForm() {
               </div>
             </dl>
             {file && wantsPaper ? (
-              <p className="mt-3 text-[15px] text-ink">{t("reviewFile", { name: file.fileName })}</p>
+              <p className="mt-3 text-[15px] text-ink">{t("reviewFile", { name: file.name })}</p>
             ) : null}
           </Card>
           <Alert tone="warning" title={t("warnTitle", { app: APP_NAME })}>
@@ -311,7 +391,7 @@ function NewCaseForm() {
           <Checkbox id="ack" label={t("ack")} checked={ack} onChange={(e) => setAck(e.target.checked)} />
           {errorLine}
           <div className="flex gap-3">
-            <Button variant="secondary" size="lg" onClick={() => goTo(1)}>
+            <Button variant="secondary" size="lg" onClick={editDetails} disabled={pending}>
               {common("back")}
             </Button>
             <Button size="lg" className="flex-1" onClick={() => void submit()} disabled={pending}>

@@ -1,55 +1,65 @@
 "use client";
 
 import { AppPage, PageHeading } from "@/components/ui/AppKit";
+import { Button } from "@/components/ui/Button";
 import { Alert, EmptyState, Skeleton } from "@/components/ui/Display";
-import { useSession } from "@/hooks/useSession";
-import type { UploadedDocument } from "@/domain/document";
-import type { CaseRecord } from "@/domain/case";
-import { caseRepository, documentService } from "@/services";
+import type { DocumentListing } from "@/domain/document";
+import type { ServiceError } from "@/domain/result";
+import { useErrorText } from "@/hooks/useErrorText";
 import { formatFileSize } from "@/lib/format";
+import { documentService } from "@/services";
 import { FileText } from "lucide-react";
 import { useTranslations } from "use-intl";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-type Row = { doc: UploadedDocument; record: CaseRecord };
-
 export default function DocumentsPage() {
   const t = useTranslations("documents");
   const common = useTranslations("common");
-  const { user } = useSession();
-  const [rows, setRows] = useState<Row[] | null>(null);
-  const [failed, setFailed] = useState(false);
+  const errorText = useErrorText();
+  const [rows, setRows] = useState<DocumentListing[] | null>(null);
+  const [more, setMore] = useState<string | null>(null);
+  const [error, setError] = useState<ServiceError | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Shown beside the button, which is where the person is looking when it fails.
+  const [moreError, setMoreError] = useState<ServiceError | null>(null);
 
   useEffect(() => {
-    if (!user) return;
     let cancelled = false;
-    void (async () => {
-      const list = await caseRepository.listByCitizen(user.id);
+    void documentService.listAll().then((result) => {
       if (cancelled) return;
-      if (!list.ok) {
-        setFailed(true);
+      if (!result.ok) {
+        setError(result.error);
         return;
       }
-      const docs = await Promise.all(list.data.map((record) => documentService.getByCaseId(record.id)));
-      if (cancelled) return;
-      const pairs: Row[] = [];
-      docs.forEach((doc, i) => {
-        if (doc.ok && doc.data) pairs.push({ doc: doc.data, record: list.data[i] });
-      });
-      setRows(pairs);
-    })();
+      setRows(result.data.items);
+      setMore(result.data.nextCursor);
+    });
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, []);
+
+  async function showMore() {
+    if (!more) return;
+    setLoadingMore(true);
+    setMoreError(null);
+    const result = await documentService.listAll({ cursor: more });
+    setLoadingMore(false);
+    if (!result.ok) {
+      setMoreError(result.error);
+      return;
+    }
+    setRows((current) => [...(current ?? []), ...result.data.items]);
+    setMore(result.data.nextCursor);
+  }
 
   return (
     <AppPage>
       <PageHeading title={t("title")} subtitle={t("subtitle")} />
       <div className="mt-6 grid gap-3">
-        {failed ? <Alert tone="danger" title={common("couldNotLoad")} /> : null}
-        {rows === null && !failed ? <Skeleton className="h-16" /> : null}
+        {error ? <Alert tone="danger" title={common("couldNotLoad")}>{errorText(error)}</Alert> : null}
+        {rows === null && !error ? <Skeleton className="h-16" /> : null}
         {rows && rows.length === 0 ? (
           <EmptyState
             title={t("emptyTitle")}
@@ -64,21 +74,31 @@ export default function DocumentsPage() {
             }
           />
         ) : null}
-        {rows?.map(({ doc, record }) => (
+        {rows?.map((doc) => (
           <Link
             key={doc.id}
-            href={`/cases/${record.id}`}
+            href={`/cases/${doc.caseId}`}
             className="ns-card flex min-h-16 items-center gap-3 p-4 hover:border-primary/30"
           >
             <FileText className="size-6 shrink-0 text-primary" strokeWidth={1.75} aria-hidden />
             <span className="min-w-0">
               <span className="block truncate text-[16px] font-semibold text-navy">{doc.fileName}</span>
               <span className="mt-0.5 block text-[14px] text-muted">
-                {record.title} · {formatFileSize(doc.byteSize)}
+                {doc.caseTitle} · {formatFileSize(doc.byteSize)}
               </span>
             </span>
           </Link>
         ))}
+        {moreError ? (
+          <p className="text-[15px] text-danger" role="alert">
+            {errorText(moreError)}
+          </p>
+        ) : null}
+        {more ? (
+          <Button variant="secondary" size="lg" onClick={() => void showMore()} disabled={loadingMore}>
+            {common("showMore")}
+          </Button>
+        ) : null}
       </div>
     </AppPage>
   );

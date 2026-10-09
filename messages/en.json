@@ -24,7 +24,9 @@
     "listen": "Listen",
     "stop": "Stop",
     "call": "Call {number}",
-    "opensWebsite": "Official website"
+    "opensWebsite": "Official website",
+    "showMore": "Show more",
+    "keep": "No, keep it"
   },
   "nav": {
     "label": "Main menu",
@@ -167,8 +169,6 @@
     "errFile": "Add a photo or PDF. Or go back and choose “I can tell the story”.",
     "errStory": "Write a little more about what happened.",
     "errAck": "Please tick the box to continue.",
-    "errSession": "Please sign in again.",
-    "errSave": "Could not save. Please try again.",
     "reviewName": "Name",
     "reviewAbout": "About",
     "reviewStartedWith": "You have",
@@ -202,7 +202,11 @@
     "waiting": "Waiting",
     "errTitle": "Could not finish",
     "errBody": "Something went wrong.",
-    "backToProblems": "Back to my problems"
+    "backToProblems": "Back to my problems",
+    "errNothing": "There is no paper or story to read here.",
+    "slow": "This is taking longer than usual. You can leave this page. It will be in My problems when it is ready.",
+    "keptEarlier": "The explanation you already had is still there.",
+    "seeEarlier": "Open it"
   },
   "analysis": {
     "askQuestion": "Ask a question",
@@ -244,9 +248,14 @@
     "helpLink": "Free legal aid and official help",
     "sourcesTitle": "Official places to start",
     "errNotFoundTitle": "Problem not found",
-    "errNotReadyTitle": "Explanation not ready",
     "errBody": "We could not open this.",
-    "backToProblems": "Back to my problems"
+    "backToProblems": "Back to my problems",
+    "otherLanguage": "This explanation is written in {language}.",
+    "readAgain": "Explain again in {language}",
+    "deleteProblem": "Delete this problem",
+    "deleteTitle": "Delete this problem?",
+    "deleteBody": "The problem, its paper and its questions will be removed from this phone. This cannot be undone.",
+    "deleteYes": "Yes, delete"
   },
   "deadline": {
     "none": "No date",
@@ -275,7 +284,7 @@
     "notAdviceTitle": "Not legal advice",
     "notAdviceBody": "Every answer in this demo is a sample. Do not treat it as an advocate’s opinion.",
     "errEmpty": "Type a question first.",
-    "errSend": "Could not send. Please try again."
+    "showEarlier": "Show earlier questions"
   },
   "help": {
     "title": "Free help",
@@ -314,7 +323,14 @@
     "myPapers": "My papers",
     "freeHelp": "Free help",
     "signOut": "Sign out",
-    "signOutNote": "Signing out removes everything saved on this phone."
+    "signOutNote": "Signing out removes everything saved on this phone.",
+    "yourData": "Your data",
+    "downloadData": "Download my data",
+    "downloadNote": "Saves a file with everything stored about you.",
+    "deleteAll": "Delete everything",
+    "deleteAllTitle": "Delete everything?",
+    "deleteAllBody": "All your problems, papers and questions will be removed from this phone, and you will be signed out. This cannot be undone.",
+    "deleteAllYes": "Yes, delete everything"
   },
   "documents": {
     "title": "My papers",
@@ -328,6 +344,15 @@
     "body": "This screen could not open. Your papers are safe. Please try again.",
     "notFoundTitle": "Page not found",
     "notFoundBody": "This page does not exist.",
-    "backHome": "Back to home"
+    "backHome": "Back to home",
+    "code_unauthenticated": "Please sign in again.",
+    "code_forbidden": "You cannot see this.",
+    "code_not_found": "We could not find this.",
+    "code_invalid": "Please check what you entered.",
+    "code_conflict": "This cannot be done right now. Please try again in a little while.",
+    "code_too_large": "This file is too big. Choose a smaller one.",
+    "code_rate_limited": "Too many tries. Please wait a little and try again.",
+    "code_quota_exceeded": "You have reached today’s limit. Please come back tomorrow.",
+    "code_unavailable": "This is not working right now. Please try again later."
   }
 }
