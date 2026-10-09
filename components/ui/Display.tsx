@@ -131,10 +131,19 @@ export function DisclaimerBar({ compact = false }: { compact?: boolean }) {
     <p
       className={cn(
         "text-muted",
-        compact ? "px-4 py-2 text-[11px]" : "px-4 py-2.5 text-sm",
+        compact ? "px-4 py-2 text-[13px]" : "px-4 py-2.5 text-sm",
       )}
     >
       {APP_NAME} explains papers in simple words. It is not a lawyer.
+    </p>
+  );
+}
+
+/** Shown on every page while the app runs on sample data. */
+export function DemoBanner() {
+  return (
+    <p role="note" className="bg-navy px-4 py-1.5 text-center text-[13px] font-medium text-white">
+      Demo — sample data only. Do not enter real personal details.
     </p>
   );
 }

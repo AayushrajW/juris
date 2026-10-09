@@ -8,6 +8,7 @@ import type { ProblemDescription, UploadedDocument } from "@/domain/document";
 import type { LawyerThread } from "@/domain/thread";
 import type { User } from "@/domain/user";
 import { DEMO_LAWYER_THREADS } from "@/data/mocks/lawyerChats";
+import { daysSinceReference, shiftDates } from "@/data/mocks/rebase";
 
 const STORAGE_KEY = "juris-mock-v1";
 
@@ -22,15 +23,19 @@ export interface MockStore {
 }
 
 function seed(): MockStore {
-  return {
-    user: null,
-    cases: structuredClone(DEMO_CASES),
-    documents: structuredClone(DEMO_DOCUMENTS),
-    descriptions: structuredClone(DEMO_DESCRIPTIONS),
-    analyses: structuredClone(DEMO_ANALYSES),
-    chats: {},
-    lawyerThreads: structuredClone(DEMO_LAWYER_THREADS),
-  };
+  // shiftDates copies as it goes, so the fixtures themselves are never mutated.
+  return shiftDates(
+    {
+      user: null,
+      cases: DEMO_CASES,
+      documents: DEMO_DOCUMENTS,
+      descriptions: DEMO_DESCRIPTIONS,
+      analyses: DEMO_ANALYSES,
+      chats: {},
+      lawyerThreads: DEMO_LAWYER_THREADS,
+    },
+    daysSinceReference(),
+  );
 }
 
 let memory = seed();
@@ -66,8 +71,11 @@ export function loadStore(): MockStore {
 
 export function saveStore(next: MockStore) {
   memory = next;
-  if (canUseStorage()) {
+  if (!canUseStorage()) return;
+  try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // Storage full or blocked (private browsing). The session carries on from memory.
   }
 }
 
@@ -77,10 +85,31 @@ export function updateStore(updater: (current: MockStore) => MockStore): MockSto
   return next;
 }
 
-export function demoUserFromName(name: string, email: string): User {
+/** Removes everything this browser holds, so the next person starts clean. */
+export function clearStore() {
+  memory = seed();
+  if (!canUseStorage()) return;
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Nothing to remove if storage is blocked.
+  }
+}
+
+function nameFromEmail(email: string) {
+  const local = email.split("@")[0]?.replace(/[._-]+/g, " ").trim();
+  return local ? local.replace(/\b\p{L}/gu, (ch) => ch.toUpperCase()) : "";
+}
+
+export function demoUserFromName(name: string | undefined, email: string): User {
+  const cleanEmail = email.trim() || DEMO_USER.email;
+  const isDemoAccount = cleanEmail.toLowerCase() === DEMO_USER.email;
   return {
     ...DEMO_USER,
-    displayName: name.trim() || DEMO_USER.displayName,
-    email: email.trim() || DEMO_USER.email,
+    displayName:
+      name?.trim() ||
+      (isDemoAccount ? DEMO_USER.displayName : nameFromEmail(cleanEmail)) ||
+      DEMO_USER.displayName,
+    email: cleanEmail,
   };
 }

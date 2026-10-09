@@ -6,20 +6,21 @@
 }
 
 @theme inline {
+  /* Text colours are chosen to reach 4.5:1 on white, the page background and every pastel. */
   --color-bg: #f3f6f8;
   --color-surface: #ffffff;
   --color-ink: #10233d;
-  --color-muted: #5b6b7c;
+  --color-muted: #566575;
   --color-navy: #0f2747;
   --color-navy-800: #16345c;
-  --color-primary: #1d6fd8;
-  --color-primary-hover: #155bb4;
-  --color-info: #1d6fd8;
-  --color-success: #1a7f4b;
-  --color-warning: #c47a12;
+  --color-primary: #1863c4;
+  --color-primary-hover: #1352a3;
+  --color-info: #1863c4;
+  --color-success: #187545;
+  --color-warning: #8f5600;
   --color-danger: #c0392b;
-  --color-ai: #d97706;
-  --color-demo: #5b6b7c;
+  --color-ai: #a8500a;
+  --color-demo: #566575;
   --color-border: #e2e8ee;
   --color-pastel-blue: #eaf3fb;
   --color-pastel-green: #e8f6ee;

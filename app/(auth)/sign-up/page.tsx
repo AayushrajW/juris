@@ -16,11 +16,18 @@ export default function SignUpPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setPending(true);
-    await authService.signUp({ email, displayName: name, password: "demo" });
+    setError(null);
+    const result = await authService.signUp({ email, displayName: name });
+    if (!result.ok) {
+      setPending(false);
+      setError(result.message);
+      return;
+    }
     await refresh();
     router.push("/dashboard");
     router.refresh();
@@ -50,9 +57,15 @@ export default function SignUpPage() {
           id="password"
           label="Password"
           type="password"
-          hint="Stored only in this browser for the prototype."
+          autoComplete="new-password"
+          hint="Not checked or stored in this demo."
           defaultValue=""
         />
+        {error ? (
+          <p className="text-sm text-danger" role="alert">
+            {error}
+          </p>
+        ) : null}
         <Button type="submit" className="w-full" disabled={pending}>
           {pending ? "Saving locally…" : "Enter the prototype"}
         </Button>

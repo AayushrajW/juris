@@ -97,13 +97,6 @@ export const DEMO_ANALYSES: Record<string, CaseAnalysis> = {
         urgency: "soon",
         note: "Counted from the demo notice date. Confirm the real date on any paper you actually receive.",
       },
-      {
-        id: "dl-reply",
-        label: "Suggested: send a written acknowledgement (demo prompt)",
-        date: "2026-08-22",
-        urgency: "urgent",
-        note: "Not a legal deadline. A calm written record of when you got the notice is often useful.",
-      },
     ],
     missingInformation: [
       {
@@ -186,7 +179,7 @@ export const DEMO_ANALYSES: Record<string, CaseAnalysis> = {
         id: "ns-4",
         order: 4,
         kind: "lawyer",
-        text: "If the dates are close or you fear lock-out, speak to a qualified advocate. Use Find an advocate as a preview only in this demo.",
+        text: "If the dates are close or you fear lock-out, speak to a qualified advocate or your district legal services authority.",
       },
     ],
     questionsForLawyer: [

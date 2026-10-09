@@ -4,30 +4,47 @@ import { Avatar } from "@/components/brand/Avatar";
 import { BrandMark } from "@/components/brand/Logo";
 import { DisclaimerBar } from "@/components/ui/Display";
 import { useSession } from "@/hooks/useSession";
-import { CITIZEN_NAV, MOBILE_NAV } from "@/lib/constants";
+import { CITIZEN_NAV, HELP_HREF } from "@/lib/constants";
 import { cn } from "@/lib/cn";
-import { Briefcase, ChevronRight, FolderOpen, Home, MessageCircle } from "lucide-react";
+import {
+  ChevronRight,
+  FolderOpen,
+  Home,
+  LifeBuoy,
+  MessageCircle,
+  type LucideIcon,
+} from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
 
-const navIcons = {
+const navIcons: Record<string, LucideIcon> = {
   "/dashboard": Home,
   "/cases": FolderOpen,
   "/assistant": MessageCircle,
-  "/lawyers": Briefcase,
-} as const;
+  [HELP_HREF]: LifeBuoy,
+};
+
+const HELP_SECTIONS = ["/legal-aid", "/resources", "/lawyers", "/messages", "/bookmarks"];
+
+function inSection(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 function isActive(pathname: string, href: string) {
-  if (href === "/dashboard") return pathname === "/dashboard";
-  if (href === "/cases") return pathname.startsWith("/cases");
-  if (href === "/assistant") return pathname.startsWith("/assistant") || pathname.startsWith("/messages");
-  if (href === "/lawyers") return pathname.startsWith("/lawyers") || pathname.startsWith("/legal-aid");
-  return pathname === href || pathname.startsWith(`${href}/`);
+  if (href === HELP_HREF) return HELP_SECTIONS.some((section) => inSection(pathname, section));
+  return inSection(pathname, href);
 }
 
 export function CitizenShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user } = useSession();
+  const router = useRouter();
+  const { user, ready } = useSession();
+
+  // The proxy only sees a cookie. If the session behind it is gone, send the person to sign in.
+  useEffect(() => {
+    if (ready && !user) router.replace(`/sign-in?next=${encodeURIComponent(pathname)}`);
+  }, [ready, user, pathname, router]);
 
   return (
     <div className="min-h-screen bg-bg md:p-3">
@@ -44,6 +61,7 @@ export function CitizenShell({ children }: { children: React.ReactNode }) {
                 <Link
                   key={item.href}
                   href={item.href}
+                  aria-current={active ? "page" : undefined}
                   className={cn(
                     "flex min-h-12 items-center gap-3 rounded-2xl px-3 text-[15px] font-medium",
                     active ? "bg-primary text-white" : "text-white/75 hover:bg-white/10 hover:text-white",
@@ -63,47 +81,53 @@ export function CitizenShell({ children }: { children: React.ReactNode }) {
               <Avatar name={user?.displayName} size="sm" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[14px] font-semibold">{user?.displayName ?? "You"}</span>
-                <span className="block text-[12px] text-white/60">My account</span>
+                <span className="block text-[12px] text-white/70">My account</span>
               </span>
-              <ChevronRight className="size-4 text-white/50" aria-hidden />
+              <ChevronRight className="size-4 text-white/60" aria-hidden />
             </Link>
           </div>
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col bg-bg">
-          <header className="flex items-center justify-between border-b border-border bg-surface px-4 py-3 md:hidden">
+          <header className="flex items-center justify-between border-b border-border bg-surface px-4 py-2 md:hidden">
             <BrandMark compact />
-            <Link href="/settings" aria-label="My account">
+            <Link
+              href="/settings"
+              aria-label="My account"
+              className="inline-flex size-11 items-center justify-center rounded-full"
+            >
               <Avatar name={user?.displayName} size="sm" />
             </Link>
           </header>
-          <main id="main" className="min-w-0 flex-1 pb-24 md:pb-0">
+          <main id="main" className="min-w-0 flex-1">
             {children}
           </main>
-          <div className="hidden border-t border-border bg-surface md:block">
+          {/* Bottom padding keeps the line clear of the fixed phone navigation. */}
+          <div className="border-t border-border bg-surface pb-16 md:pb-0">
             <DisclaimerBar compact />
           </div>
         </div>
       </div>
 
       <nav
-        aria-label="Mobile"
+        aria-label="Main"
         className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-border bg-surface md:hidden"
       >
-        {MOBILE_NAV.map((item) => {
+        {CITIZEN_NAV.map((item) => {
           const Icon = navIcons[item.href];
           const active = isActive(pathname, item.href);
           return (
             <Link
               key={item.href}
               href={item.href}
+              aria-current={active ? "page" : undefined}
               className={cn(
-                "flex min-h-16 flex-col items-center justify-center gap-1 text-[12px] font-semibold",
-                active ? "text-primary" : "text-muted",
+                "flex min-h-16 flex-col items-center justify-center gap-1 border-t-[3px] text-[12px] font-semibold",
+                active ? "border-primary text-primary" : "border-transparent text-muted",
               )}
             >
               <Icon className="size-6" strokeWidth={1.75} aria-hidden />
-              {item.label}
+              {item.shortLabel}
             </Link>
           );
         })}

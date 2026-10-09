@@ -12,9 +12,15 @@ const dateTimeFormatter = new Intl.DateTimeFormat("en-IN", {
   minute: "2-digit",
 });
 
+/** A date-only string ("2026-08-27") means that calendar day here, not midnight UTC. */
+function parseDate(iso: string): Date {
+  const day = /^(d{4})-(d{2})-(d{2})$/.exec(iso);
+  return day ? new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])) : new Date(iso);
+}
+
 export function formatDate(iso?: string): string {
   if (!iso) return "Date not known";
-  const date = new Date(iso);
+  const date = parseDate(iso);
   if (Number.isNaN(date.getTime())) return "Date not known";
   return dateFormatter.format(date);
 }
@@ -39,7 +45,12 @@ export function firstName(displayName?: string | null): string {
 
 export function initials(displayName?: string | null): string {
   if (!displayName) return "U";
-  const parts = displayName.trim().split(/\s+/).filter(Boolean);
+  // "Adv. Kavita Sharma" is KS, not AS.
+  const parts = displayName
+    .trim()
+    .split(/\s+/)
+    .filter((part) => part && !/^adv\.?$/i.test(part));
+  if (parts.length === 0) return "U";
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
 }
@@ -79,13 +90,12 @@ export function publicCaseRef(id: string): string {
   return `NS-${String(1000 + (hash % 9000)).padStart(4, "0")}`;
 }
 
-export function daysUntil(iso?: string): number | null {
+/** Whole calendar days from `today` to the date. Negative when the date has passed. */
+export function daysUntil(iso?: string, today: Date = new Date()): number | null {
   if (!iso) return null;
-  const date = new Date(iso);
+  const date = parseDate(iso);
   if (Number.isNaN(date.getTime())) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const target = new Date(date);
-  target.setHours(0, 0, 0, 0);
-  return Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  const from = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const to = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  return Math.round((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24));
 }

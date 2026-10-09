@@ -6,6 +6,8 @@ import { ActionCard, AppPage } from "@/components/ui/AppKit";
 import { Alert, EmptyState, Skeleton } from "@/components/ui/Display";
 import { useSession } from "@/hooks/useSession";
 import type { CaseRecord } from "@/domain/case";
+import { HELP_HREF } from "@/lib/constants";
+import { daysLeftText, nextDeadline } from "@/lib/deadlines";
 import { formatDate, greetingForNow } from "@/lib/format";
 import { analysisService, caseRepository } from "@/services";
 import { Bot, Camera, MessageCircle } from "lucide-react";
@@ -35,14 +37,10 @@ export default function DashboardPage() {
         if (!a.ok) return;
         const record = result.data[i];
         a.data.deadlines.forEach((d) => {
-          if (d.date && (d.urgency === "urgent" || d.urgency === "soon" || d.urgency === "upcoming")) {
-            upcoming.push({ date: d.date, label: d.label, caseId: record.id, title: record.title });
-          }
+          if (d.date) upcoming.push({ date: d.date, label: d.label, caseId: record.id, title: record.title });
         });
       });
-      upcoming.sort((a, b) => a.date.localeCompare(b.date));
-      const first = upcoming[0];
-      setDeadline(first ? { label: first.label, date: first.date, caseId: first.caseId, title: first.title } : null);
+      setDeadline(nextDeadline(upcoming));
     })();
   }, [user]);
 
@@ -74,7 +72,8 @@ export default function DashboardPage() {
             <span className="block text-[16px] font-semibold text-navy">A date is coming</span>
             <span className="mt-1 block text-[14px] leading-snug text-ink/85">
               {deadline.label}
-              {deadline.date ? ` — ${formatDate(deadline.date)}` : ""}. Tap to see what to do.
+              {deadline.date ? ` — ${formatDate(deadline.date)} (${daysLeftText(deadline.date)})` : ""}. Tap to
+              see what to do.
             </span>
           </span>
         </Link>
@@ -108,7 +107,7 @@ export default function DashboardPage() {
       </div>
 
       <p className="mt-4 text-center text-[15px]">
-        <Link href="/lawyers" className="font-semibold text-primary">
+        <Link href={HELP_HREF} className="inline-flex min-h-11 items-center font-semibold text-primary">
           Need a person to talk to? Find help →
         </Link>
       </p>

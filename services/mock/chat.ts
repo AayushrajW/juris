@@ -1,4 +1,5 @@
 import type { ChatMessage } from "@/domain/chat";
+import { formatDate } from "@/lib/format";
 import type { ChatService } from "@/services/types";
 import { loadStore, updateStore } from "./store";
 
@@ -9,12 +10,12 @@ function replyFor(caseId: string, content: string): string {
     const first = analysis?.deadlines[0];
     return `Demo reply — not from a live model. ${
       first
-        ? `The sample file lists “${first.label}”${first.date ? ` (${first.date})` : ""}. Confirm any real paper in your hand.`
+        ? `The sample file lists “${first.label}”${first.date ? ` (${formatDate(first.date)})` : ""}. Confirm any real paper in your hand.`
         : "This demo case does not list a date."
     } Juris is not a lawyer.`;
   }
   if (lower.includes("lawyer") || lower.includes("advocate")) {
-    return "Demo reply — not from a live model. If you want a person, use Find an advocate in this prototype (sample profiles only) or legal aid through official channels. Juris does not represent you.";
+    return "Demo reply — not from a live model. If you want a person, open Free help for legal aid through official channels. Juris does not represent you.";
   }
   if (lower.includes("next") || lower.includes("do ")) {
     const step = analysis?.nextSteps[0];

@@ -6,6 +6,7 @@ export interface DeadlineItem {
   id: string;
   label: string;
   date?: string;
+  /** As first assessed. Screens work urgency out from `date` (lib/deadlines.ts). */
   urgency: Urgency;
   note?: string;
 }
@@ -89,11 +90,4 @@ export const ACTOR_LABEL: Record<ObligationItem["actor"], string> = {
   you: "You",
   other_party: "The other party",
   unclear: "Unclear who",
-};
-
-export const URGENCY_LABEL: Record<Urgency, string> = {
-  none: "No date given",
-  upcoming: "Upcoming",
-  soon: "Soon",
-  urgent: "Urgent",
 };

@@ -5,6 +5,8 @@ import { Card } from "@/components/ui/Display";
 import { Input } from "@/components/ui/Field";
 import { useSession } from "@/hooks/useSession";
 import { DEMO_AUTH_NOTE } from "@/lib/constants";
+import { env } from "@/lib/env";
+import { safeNextPath } from "@/lib/safeRedirect";
 import { authService } from "@/services";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -13,9 +15,9 @@ import { FormEvent, Suspense, useState } from "react";
 function SignInForm() {
   const router = useRouter();
   const search = useSearchParams();
-  const next = search.get("next") || "/dashboard";
+  const next = safeNextPath(search.get("next"));
   const { refresh } = useSession();
-  const [email, setEmail] = useState("meera.demo@juris.example");
+  const [email, setEmail] = useState(env.demoMode ? "meera.demo@juris.example" : "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -24,7 +26,7 @@ function SignInForm() {
     e.preventDefault();
     setPending(true);
     setError(null);
-    const result = await authService.signIn({ email, password, displayName: "Meera Iyer" });
+    const result = await authService.signIn({ email, password });
     setPending(false);
     if (!result.ok) {
       setError(result.message);

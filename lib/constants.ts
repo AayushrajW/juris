@@ -1,3 +1,5 @@
+import { env } from "@/lib/env";
+
 export const APP_NAME = "Juris";
 export const APP_TAGLINE = "Law made simple";
 
@@ -12,18 +14,14 @@ export const DEMO_AUTH_NOTE =
 
 export const SESSION_COOKIE = "juris_session";
 
-export const CITIZEN_NAV = [
-  { href: "/dashboard", label: "Home" },
-  { href: "/cases", label: "My problems" },
-  { href: "/assistant", label: "Ask" },
-  { href: "/lawyers", label: "Find a person" },
-] as const;
+/** Where "I need a person" leads. Advocate listings stay off until they are compliant. */
+export const HELP_HREF = env.advocatesEnabled ? "/lawyers" : "/legal-aid";
 
-export const MOBILE_NAV = [
-  { href: "/dashboard", label: "Home" },
-  { href: "/cases", label: "Problems" },
-  { href: "/assistant", label: "Ask" },
-  { href: "/lawyers", label: "Help" },
+export const CITIZEN_NAV = [
+  { href: "/dashboard", label: "Home", shortLabel: "Home" },
+  { href: "/cases", label: "My problems", shortLabel: "Problems" },
+  { href: "/assistant", label: "Ask", shortLabel: "Ask" },
+  { href: HELP_HREF, label: env.advocatesEnabled ? "Find a person" : "Free help", shortLabel: "Help" },
 ] as const;
 
 export const MATTER_LABELS: Record<string, string> = {

@@ -7,9 +7,11 @@ import { AppPage, Tabs } from "@/components/ui/AppKit";
 import { Button } from "@/components/ui/Button";
 import { Alert, Badge, Card, EmptyState, Skeleton } from "@/components/ui/Display";
 import { Sheet } from "@/components/ui/Sheet";
-import { URGENCY_LABEL, type CaseAnalysis } from "@/domain/analysis";
+import type { CaseAnalysis } from "@/domain/analysis";
 import type { CaseRecord } from "@/domain/case";
 import type { ProblemDescription, UploadedDocument } from "@/domain/document";
+import { DEADLINE_STATE_LABEL, daysLeftText, deadlineState, type DeadlineState } from "@/lib/deadlines";
+import { env } from "@/lib/env";
 import { formatDate } from "@/lib/format";
 import { sortLawyersByMatch } from "@/lib/lawyerMatch";
 import { analysisService, caseRepository, documentService, lawyerRepository } from "@/services";
@@ -25,10 +27,10 @@ const TABS = [
   { id: "lawyers", label: "Get help" },
 ];
 
-function urgencyTone(u: CaseAnalysis["deadlines"][number]["urgency"]) {
-  if (u === "urgent") return "urgent" as const;
-  if (u === "soon") return "warning" as const;
-  if (u === "upcoming") return "info" as const;
+function deadlineTone(state: DeadlineState) {
+  if (state === "urgent") return "urgent" as const;
+  if (state === "soon") return "warning" as const;
+  if (state === "upcoming") return "info" as const;
   return "neutral" as const;
 }
 
@@ -57,14 +59,14 @@ export default function CaseAnalysisPage() {
         analysisService.getAnalysis(caseId),
         documentService.getByCaseId(caseId),
         documentService.getDescription(caseId),
-        lawyerRepository.list(),
+        env.advocatesEnabled ? lawyerRepository.list() : null,
       ]);
       if (cancelled) return;
       if (a.ok) setAnalysis(a.data);
       else setError(a.message);
       if (d.ok) setDoc(d.data);
       if (p.ok) setDesc(p.data);
-      if (l.ok) setLawyers(l.data);
+      if (l?.ok) setLawyers(l.data);
     }
     void load();
     return () => {
@@ -81,10 +83,10 @@ export default function CaseAnalysisPage() {
     }).slice(0, 4);
   }, [lawyers, record]);
 
-  if (error && !record) {
+  if (error) {
     return (
       <AppPage>
-        <Alert tone="danger" title="Case not found">
+        <Alert tone="danger" title={record ? "Explanation not ready" : "Case not found"}>
           {error}{" "}
           <Link className="font-medium underline" href="/cases">
             Back to cases
@@ -107,8 +109,11 @@ export default function CaseAnalysisPage() {
   const attentionText =
     analysis.risks[0]?.text ??
     (() => {
-      const d = analysis.deadlines.find((item) => item.urgency === "urgent" || item.urgency === "soon");
-      return d ? `${d.label}${d.date ? ` — ${formatDate(d.date)}` : ""}` : null;
+      const d = analysis.deadlines.find((item) => {
+        const state = deadlineState(item.date);
+        return state === "urgent" || state === "soon";
+      });
+      return d ? `${d.label} — ${formatDate(d.date)}` : null;
     })();
 
   const documentPane = (
@@ -230,9 +235,14 @@ export default function CaseAnalysisPage() {
               <li key={d.id} className="flex flex-col gap-1 rounded-2xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-[16px] font-medium text-navy">{d.label}</p>
-                  <p className="text-[14px] text-muted">{d.date ? formatDate(d.date) : "No date written"}</p>
+                  <p className="text-[14px] text-muted">
+                    {d.date ? `${formatDate(d.date)} · ${daysLeftText(d.date)}` : "No date written"}
+                  </p>
+                  {d.note ? <p className="mt-1 text-[14px] text-muted">{d.note}</p> : null}
                 </div>
-                <Badge tone={urgencyTone(d.urgency)}>{URGENCY_LABEL[d.urgency]}</Badge>
+                <Badge tone={deadlineTone(deadlineState(d.date))}>
+                  {DEADLINE_STATE_LABEL[deadlineState(d.date)]}
+                </Badge>
               </li>
             ))}
           </ul>
@@ -250,15 +260,25 @@ export default function CaseAnalysisPage() {
 
       {tab === "lawyers" ? (
         <div className="mt-6 space-y-3">
-          <p className="text-[16px] text-muted">These are sample people so you can try the app. Free legal aid is also listed below.</p>
-          {ranked.map(({ lawyer, match }) => (
-            <LawyerCard
-              key={lawyer.id}
-              lawyer={lawyer}
-              match={match}
-              onConsult={() => router.push(`/messages?lawyerId=${lawyer.id}`)}
-            />
-          ))}
+          {env.advocatesEnabled ? (
+            <>
+              <p className="text-[16px] text-muted">
+                These are sample people so you can try the app. Free legal aid is also listed below.
+              </p>
+              {ranked.map(({ lawyer, match }) => (
+                <LawyerCard
+                  key={lawyer.id}
+                  lawyer={lawyer}
+                  match={match}
+                  onConsult={() => router.push(`/messages?lawyerId=${lawyer.id}`)}
+                />
+              ))}
+            </>
+          ) : (
+            <p className="text-[16px] text-muted">
+              If you need a person, start with free legal aid. It is a government service.
+            </p>
+          )}
           <Link href="/legal-aid" className="ns-card mt-2 block p-5 text-[16px] font-semibold text-primary">
             Free legal aid and official help →
           </Link>

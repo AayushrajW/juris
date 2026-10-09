@@ -3,7 +3,7 @@
 import { CaseCard } from "@/components/cases/CaseCard";
 import { AppPage, PageHeading } from "@/components/ui/AppKit";
 import { Button } from "@/components/ui/Button";
-import { EmptyState, Skeleton } from "@/components/ui/Display";
+import { Alert, EmptyState, Skeleton } from "@/components/ui/Display";
 import { Select } from "@/components/ui/Field";
 import { useSession } from "@/hooks/useSession";
 import type { CaseRecord, CaseStatus } from "@/domain/case";
@@ -16,11 +16,13 @@ export default function CaseHistoryPage() {
   const { user } = useSession();
   const [cases, setCases] = useState<CaseRecord[] | null>(null);
   const [filter, setFilter] = useState<CaseStatus | "all">("all");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
     void caseRepository.listByCitizen(user.id).then((result) => {
       if (result.ok) setCases(result.data);
+      else setError(result.message);
     });
   }, [user]);
 
@@ -57,7 +59,12 @@ export default function CaseHistoryPage() {
         </Select>
       </div>
       <div className="mt-6 grid gap-2.5">
-        {cases === null ? <Skeleton className="h-16" /> : null}
+        {error ? (
+          <Alert tone="danger" title="Could not load">
+            {error}
+          </Alert>
+        ) : null}
+        {cases === null && !error ? <Skeleton className="h-16" /> : null}
         {cases && visible.length === 0 ? (
           <EmptyState title="Nothing in this list" body="Try another status, or start a new case." />
         ) : null}

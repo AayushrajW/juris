@@ -10,9 +10,15 @@ import { APP_NAME, MATTER_LABELS } from "@/lib/constants";
 import type { CaseSource, MatterCategory } from "@/domain/case";
 import { caseRepository } from "@/services";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
+
+type Mode = "document" | "description" | "both";
 
 const STEPS = ["How to start", "Details", "Review"];
+
+function parseMode(value: string | null): Mode | null {
+  return value === "document" || value === "description" || value === "both" ? value : null;
+}
 const CATEGORIES = Object.keys(MATTER_LABELS) as MatterCategory[];
 
 export default function NewCasePage() {
@@ -27,26 +33,20 @@ function NewCaseForm() {
   const router = useRouter();
   const search = useSearchParams();
   const { user } = useSession();
-  const [step, setStep] = useState(0);
-  const [mode, setMode] = useState<"document" | "description" | "both">("both");
+  // A link such as /cases/new?mode=document skips the first question.
+  const linkedMode = parseMode(search.get("mode"));
+  const [step, setStep] = useState(linkedMode ? 1 : 0);
+  const [mode, setMode] = useState<Mode>(linkedMode ?? "both");
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<MatterCategory>("tenancy");
   const [city, setCity] = useState("");
   const [stateName, setStateName] = useState("");
   const [file, setFile] = useState<LocalFile | null>(null);
   const [narrative, setNarrative] = useState("");
-  const [whatHappened, setWhatHappened] = useState("");
+  const [outcomeWanted, setOutcomeWanted] = useState("");
   const [ack, setAck] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-
-  useEffect(() => {
-    const initial = search.get("mode");
-    if (initial === "document" || initial === "description" || initial === "both") {
-      setMode(initial);
-      setStep(1);
-    }
-  }, [search]);
 
   const source: CaseSource =
     mode === "both" ? "document_and_description" : mode === "document" ? "document" : "description";
@@ -90,13 +90,13 @@ function NewCaseForm() {
       source,
       city,
       state: stateName,
-      document: file ?? undefined,
+      document: mode === "description" ? undefined : (file ?? undefined),
       description:
         mode === "document"
           ? undefined
           : {
               narrative,
-              whatHappened: whatHappened || undefined,
+              whatOutcomeWanted: outcomeWanted.trim() || undefined,
             },
     });
     setPending(false);
@@ -190,8 +190,8 @@ function NewCaseForm() {
               <Input
                 id="want"
                 label="What would a good ending look like? (optional)"
-                value={whatHappened}
-                onChange={(e) => setWhatHappened(e.target.value)}
+                value={outcomeWanted}
+                onChange={(e) => setOutcomeWanted(e.target.value)}
               />
             </>
           ) : null}
@@ -216,7 +216,7 @@ function NewCaseForm() {
             <p className="font-medium text-navy">{title}</p>
             <p className="mt-3 text-sm text-demo">Type</p>
             <p className="text-ink">{MATTER_LABELS[category]} · {source.replaceAll("_", " ")}</p>
-            {file ? (
+            {file && mode !== "description" ? (
               <p className="mt-3 text-sm text-ink">File: {file.fileName}</p>
             ) : null}
           </Card>

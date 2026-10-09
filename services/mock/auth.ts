@@ -1,10 +1,12 @@
+import { clearBookmarks } from "@/lib/bookmarks";
 import { SESSION_COOKIE } from "@/lib/constants";
 import type { AuthCredentials, AuthService } from "@/services/types";
-import { demoUserFromName, loadStore, saveStore, updateStore } from "./store";
+import { clearStore, demoUserFromName, loadStore, updateStore } from "./store";
 
 function writeCookie(userId: string) {
   if (typeof document === "undefined") return;
-  document.cookie = `${SESSION_COOKIE}=${encodeURIComponent(userId)}; path=/; max-age=${60 * 60 * 24 * 14}; SameSite=Lax`;
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${SESSION_COOKIE}=${encodeURIComponent(userId)}; path=/; max-age=${60 * 60 * 24 * 14}; SameSite=Lax${secure}`;
 }
 
 function clearCookie() {
@@ -12,21 +14,20 @@ function clearCookie() {
   document.cookie = `${SESSION_COOKIE}=; path=/; max-age=0`;
 }
 
+function hasCookie() {
+  if (typeof document === "undefined") return false;
+  return document.cookie.split("; ").some((part) => part.startsWith(`${SESSION_COOKIE}=`));
+}
+
 export const mockAuthService: AuthService = {
   async signIn(credentials: AuthCredentials) {
-    const user = demoUserFromName(
-      credentials.displayName || "Meera Iyer",
-      credentials.email,
-    );
+    const user = demoUserFromName(credentials.displayName, credentials.email);
     updateStore((s) => ({ ...s, user }));
     writeCookie(user.id);
     return { ok: true, data: user };
   },
   async signUp(credentials: AuthCredentials) {
-    return this.signIn({
-      ...credentials,
-      displayName: credentials.displayName || credentials.email.split("@")[0],
-    });
+    return this.signIn(credentials);
   },
   async requestPasswordReset(email: string) {
     if (!email.includes("@")) {
@@ -41,17 +42,17 @@ export const mockAuthService: AuthService = {
     };
   },
   async signOut() {
-    updateStore((s) => ({ ...s, user: null }));
+    // Phones are shared. Leave nothing behind for the next person.
+    clearStore();
+    clearBookmarks();
     clearCookie();
   },
   async getSession() {
-    const store = loadStore();
-    if (store.user) return store.user;
-    if (typeof document === "undefined") return null;
-    const match = document.cookie.match(new RegExp(`${SESSION_COOKIE}=([^;]+)`));
-    if (!match) return null;
-    const user = demoUserFromName("Meera Iyer", "meera.demo@juris.example");
-    saveStore({ ...store, user });
-    return user;
+    const user = loadStore().user;
+    if (user && hasCookie()) return user;
+    // The two halves of the session disagree, so there is no session.
+    if (user) updateStore((s) => ({ ...s, user: null }));
+    clearCookie();
+    return null;
   },
 };

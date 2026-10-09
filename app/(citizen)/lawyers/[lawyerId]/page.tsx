@@ -35,8 +35,8 @@ export default function LawyerProfilePage() {
     void lawyerRepository.getById(lawyerId).then((r) => {
       if (r.ok) setLawyer(r.data);
       else setError(r.message);
+      setSaved(isBookmarked(lawyerId));
     });
-    setSaved(isBookmarked(lawyerId));
   }, [lawyerId]);
 
   if (error) {

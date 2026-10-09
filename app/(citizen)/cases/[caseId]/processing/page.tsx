@@ -3,6 +3,7 @@
 import { Alert } from "@/components/ui/Display";
 import { AppPage } from "@/components/ui/AppKit";
 import { analysisService, caseRepository } from "@/services";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -63,7 +64,7 @@ export default function ProcessingPage() {
               i <= active ? "border-primary/30 bg-pastel-purple text-navy" : "border-border text-muted"
             }`}
           >
-            {i < active ? "Done — " : i === active ? "In progress — " : "Waiting — "}
+            {i < active ? "Done — " : i === active ? (error ? "Stopped — " : "In progress — ") : "Waiting — "}
             {label}
           </li>
         ))}
@@ -71,7 +72,10 @@ export default function ProcessingPage() {
       {error ? (
         <div className="mt-6">
           <Alert tone="danger" title="Could not finish">
-            {error}
+            {error}{" "}
+            <Link className="font-medium underline" href="/cases">
+              Back to my problems
+            </Link>
           </Alert>
         </div>
       ) : null}

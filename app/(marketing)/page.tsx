@@ -43,7 +43,7 @@ export default function LandingPage() {
                 "Bring a PDF, photo, or a story in your own words.",
                 "See a plain-language explanation, dates, and gaps.",
                 "Use a checklist of papers and questions for an advocate.",
-                "If you need a person, browse sample advocate profiles (preview only).",
+                "If you need a person, find free legal aid and official help.",
               ].map((item, i) => (
                 <li key={item} className="flex gap-3 text-ink">
                   <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-navy text-sm text-white">
@@ -100,7 +100,7 @@ export default function LandingPage() {
               <ul className="mt-3 list-disc space-y-2 pl-5 text-ink/85">
                 <li>A reading and organising tool for ordinary citizens in India.</li>
                 <li>A place to prepare questions and a paper checklist.</li>
-                <li>A preview of how you might later find an advocate.</li>
+                <li>A pointer to free legal aid when you need a person.</li>
               </ul>
             </div>
             <div>

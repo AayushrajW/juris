@@ -15,7 +15,7 @@ const SUGGESTIONS = [
 
 export function AskAiPanel({ caseId, seedQuestion }: { caseId: string; seedQuestion?: string }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(seedQuestion ?? "");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -23,11 +23,6 @@ export function AskAiPanel({ caseId, seedQuestion }: { caseId: string; seedQuest
       if (result.ok) setMessages(result.data);
     });
   }, [caseId]);
-
-  useEffect(() => {
-    if (seedQuestion) void send(seedQuestion);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seedQuestion]);
 
   async function send(content: string) {
     setError(null);

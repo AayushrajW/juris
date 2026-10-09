@@ -5,26 +5,26 @@ import { AppPage, PageHeading } from "@/components/ui/AppKit";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Display";
 import { useSession } from "@/hooks/useSession";
+import { env } from "@/lib/env";
 import { authService } from "@/services";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 const MORE = [
-  { href: "/messages", label: "Messages" },
+  ...(env.advocatesEnabled ? [{ href: "/messages", label: "Messages" }] : []),
   { href: "/documents", label: "My papers" },
   { href: "/legal-aid", label: "Free legal aid" },
   { href: "/resources", label: "Official websites" },
-  { href: "/bookmarks", label: "Saved people" },
+  ...(env.advocatesEnabled ? [{ href: "/bookmarks", label: "Saved people" }] : []),
 ];
 
 export default function SettingsPage() {
   const { user } = useSession();
-  const router = useRouter();
 
   async function signOut() {
     await authService.signOut();
-    router.push("/");
-    router.refresh();
+    // A full reload is the point here: it drops everything still held in memory.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.assign("/");
   }
 
   return (
