@@ -5,7 +5,7 @@ import { env } from "@/lib/env";
 import { safeNextPath } from "@/lib/safeRedirect";
 
 /** Every other path needs a session, so a new route is protected unless it is added here. */
-const PUBLIC_PATHS = new Set(["/", "/sign-in", "/sign-up", "/forgot-password"]);
+const PUBLIC_PATHS = new Set(["/", "/sign-in", "/sign-up"]);
 const AUTH_PAGES = new Set(["/sign-in", "/sign-up"]);
 const ADVOCATE_PREFIXES = ["/lawyers", "/messages", "/bookmarks"];
 

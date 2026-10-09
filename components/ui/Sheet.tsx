@@ -2,9 +2,16 @@
 
 import { cn } from "@/lib/cn";
 import { X } from "lucide-react";
-import { useEffect } from "react";
+import { useTranslations } from "use-intl";
+import { useEffect, useId, useRef } from "react";
 import { IconButton } from "./Button";
 
+/**
+ * A panel over the page: from the bottom on a phone, centred on a wide screen.
+ * Built on the browser's own dialog, which keeps focus inside the panel, makes
+ * the page behind it inert, closes on Escape and returns focus to the button
+ * that opened it.
+ */
 export function Sheet({
   open,
   onClose,
@@ -16,43 +23,55 @@ export function Sheet({
   title: string;
   children: React.ReactNode;
 }) {
+  const t = useTranslations("common");
+  const titleId = useId();
+  const ref = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (open && !dialog.open) dialog.showModal();
+    if (!open && dialog.open) dialog.close();
+  }, [open]);
+
+  // The page behind must not scroll while the panel is up.
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+    const root = document.documentElement;
+    const previous = root.style.overflow;
+    root.style.overflow = "hidden";
+    return () => {
+      root.style.overflow = previous;
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  if (!open) return null;
+  }, [open]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center">
-      <button
-        type="button"
-        aria-label="Close panel"
-        className="absolute inset-0 bg-navy/40"
-        onClick={onClose}
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="sheet-title"
-        className={cn(
-          "relative z-10 flex max-h-[88vh] w-full flex-col rounded-t-xl border border-border bg-surface shadow-lg md:max-w-lg md:rounded-xl",
-        )}
-      >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 id="sheet-title" className="text-lg font-semibold text-navy">
-            {title}
-          </h2>
-          <IconButton label="Close" onClick={onClose}>
-            <X className="size-5" />
-          </IconButton>
-        </div>
-        <div className="overflow-y-auto p-4">{children}</div>
-      </div>
-    </div>
+    <dialog
+      ref={ref}
+      aria-labelledby={titleId}
+      // Fires for Escape and for close(); keeps the parent's state in step.
+      onClose={onClose}
+      // A click on the dimmed area lands on the dialog element itself.
+      onClick={(e) => {
+        if (e.target === ref.current) onClose();
+      }}
+      className={cn(
+        "m-0 mt-auto max-h-[88vh] w-full max-w-none flex-col rounded-t-2xl border border-border bg-surface p-0 text-ink shadow-lg backdrop:bg-navy/40 open:flex md:m-auto md:max-w-lg md:rounded-2xl",
+      )}
+    >
+      {open ? (
+        <>
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <h2 id={titleId} className="text-[19px] font-semibold text-navy">
+              {title}
+            </h2>
+            <IconButton label={t("close")} onClick={onClose} className="size-11">
+              <X className="size-6" aria-hidden />
+            </IconButton>
+          </div>
+          <div className="overflow-y-auto p-4">{children}</div>
+        </>
+      ) : null}
+    </dialog>
   );
 }

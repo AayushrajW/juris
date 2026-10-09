@@ -4,14 +4,19 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Display";
 import { Input } from "@/components/ui/Field";
 import { useSession } from "@/hooks/useSession";
-import { DEMO_AUTH_NOTE } from "@/lib/constants";
+import { env } from "@/lib/env";
+import { safeNextPath } from "@/lib/safeRedirect";
 import { authService } from "@/services";
+import { useTranslations } from "use-intl";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, Suspense, useState } from "react";
 
-export default function SignUpPage() {
+function SignUpForm() {
+  const t = useTranslations("auth");
   const router = useRouter();
+  const search = useSearchParams();
+  const next = safeNextPath(search.get("next"));
   const { refresh } = useSession();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -25,57 +30,63 @@ export default function SignUpPage() {
     const result = await authService.signUp({ email, displayName: name });
     if (!result.ok) {
       setPending(false);
-      setError(result.message);
+      setError(t("failed"));
       return;
     }
     await refresh();
-    router.push("/dashboard");
+    router.push(next);
     router.refresh();
   }
 
   return (
     <Card>
-      <h1 className="text-[22px] font-semibold text-navy">Create a demo account</h1>
-      <p className="mt-2 text-sm text-demo">{DEMO_AUTH_NOTE}</p>
+      <h1 className="text-[24px] font-semibold text-navy">{t("signUpTitle")}</h1>
+      {env.demoMode ? <p className="mt-2 text-[15px] text-muted">{t("demoNote")}</p> : null}
       <form className="mt-6 space-y-4" onSubmit={submit}>
         <Input
           id="name"
-          label="Your name"
+          label={t("name")}
+          autoComplete="name"
           required
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
         <Input
           id="email"
-          label="Email"
+          label={t("email")}
           type="email"
+          inputMode="email"
+          autoComplete="email"
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
-        <Input
-          id="password"
-          label="Password"
-          type="password"
-          autoComplete="new-password"
-          hint="Not checked or stored in this demo."
-          defaultValue=""
-        />
         {error ? (
-          <p className="text-sm text-danger" role="alert">
+          <p className="text-[15px] text-danger" role="alert">
             {error}
           </p>
         ) : null}
-        <Button type="submit" className="w-full" disabled={pending}>
-          {pending ? "Saving locally…" : "Enter the prototype"}
+        <Button type="submit" size="lg" className="w-full" disabled={pending}>
+          {pending ? t("opening") : t("enter")}
         </Button>
       </form>
-      <p className="mt-4 text-sm text-demo">
-        Already have a demo session?{" "}
-        <Link className="font-medium text-navy underline-offset-2 hover:underline" href="/sign-in">
-          Sign in
+      <p className="mt-5 text-[15px] text-muted">
+        {t("haveAccount")}{" "}
+        <Link
+          className="font-semibold text-navy underline underline-offset-2"
+          href={search.get("next") ? `/sign-in?next=${encodeURIComponent(next)}` : "/sign-in"}
+        >
+          {t("signInTitle")}
         </Link>
       </p>
     </Card>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense>
+      <SignUpForm />
+    </Suspense>
   );
 }

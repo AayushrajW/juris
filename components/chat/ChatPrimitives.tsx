@@ -1,4 +1,8 @@
+"use client";
+
 import { cn } from "@/lib/cn";
+import { useTranslations } from "use-intl";
+import { useId } from "react";
 
 export function MessageBubble({
   align,
@@ -17,7 +21,7 @@ export function MessageBubble({
         : "bg-white text-ink border border-border";
   return (
     <div className={cn("flex", align === "right" ? "justify-end" : "justify-start")}>
-      <div className={cn("max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed", bubble)}>
+      <div className={cn("max-w-[85%] rounded-2xl px-4 py-3 text-[16px] leading-relaxed", bubble)}>
         {children}
       </div>
     </div>
@@ -28,15 +32,16 @@ export function ChatInput({
   value,
   onChange,
   onSubmit,
-  placeholder = "Type a message...",
   disabled,
 }: {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
-  placeholder?: string;
   disabled?: boolean;
 }) {
+  const t = useTranslations("assistant");
+  const common = useTranslations("common");
+  const id = useId();
   return (
     <form
       className="flex items-end gap-2"
@@ -45,24 +50,26 @@ export function ChatInput({
         onSubmit();
       }}
     >
-      <label htmlFor="chat-input" className="sr-only">
-        Message
+      <label htmlFor={id} className="sr-only">
+        {t("inputLabel")}
       </label>
       <input
-        id="chat-input"
+        id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
+        placeholder={t("placeholder")}
         disabled={disabled}
-        className="min-h-11 flex-1 rounded-[14px] border border-border bg-surface px-4 text-sm outline-none placeholder:text-muted focus:border-primary"
+        autoComplete="off"
+        enterKeyHint="send"
+        className="min-h-12 flex-1 rounded-[14px] border border-border bg-surface px-4 text-[16px] outline-none placeholder:text-muted focus:border-primary"
       />
       <button
         type="submit"
-        aria-label="Send"
+        aria-label={common("send")}
         disabled={disabled}
-        className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-white hover:bg-primary-hover disabled:opacity-50"
+        className="inline-flex size-12 shrink-0 items-center justify-center rounded-full bg-primary text-white hover:bg-primary-hover disabled:opacity-50"
       >
-        <svg viewBox="0 0 24 24" className="size-4 fill-current" aria-hidden>
+        <svg viewBox="0 0 24 24" className="size-5 fill-current" aria-hidden>
           <path d="M3.4 20.6 21 12 3.4 3.4 3 10l12 2-12 2z" />
         </svg>
       </button>

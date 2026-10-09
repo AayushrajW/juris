@@ -3,29 +3,28 @@
 import { AskAiPanel } from "@/components/assistant/AskAiPanel";
 import { CaseStatusBadge } from "@/components/cases/CaseStatusBadge";
 import { LawyerCard } from "@/components/lawyers/LawyerCard";
-import { AppPage, Tabs } from "@/components/ui/AppKit";
+import { AppPage, TabPanel, Tabs } from "@/components/ui/AppKit";
 import { Button } from "@/components/ui/Button";
 import { Alert, Badge, Card, EmptyState, Skeleton } from "@/components/ui/Display";
+import { ListenButton } from "@/components/ui/ListenButton";
 import { Sheet } from "@/components/ui/Sheet";
 import type { CaseAnalysis } from "@/domain/analysis";
 import type { CaseRecord } from "@/domain/case";
 import type { ProblemDescription, UploadedDocument } from "@/domain/document";
-import { DEADLINE_STATE_LABEL, daysLeftText, deadlineState, type DeadlineState } from "@/lib/deadlines";
+import { daysLeftParts, deadlineState, type DeadlineState } from "@/lib/deadlines";
 import { env } from "@/lib/env";
 import { formatDate } from "@/lib/format";
 import { sortLawyersByMatch } from "@/lib/lawyerMatch";
+import { isHttpsUrl } from "@/lib/safeRedirect";
 import { analysisService, caseRepository, documentService, lawyerRepository } from "@/services";
 import type { LawyerProfile } from "@/domain/lawyer";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ExternalLink, Info, LifeBuoy, MessageCircle } from "lucide-react";
+import { useLocale, useTranslations } from "use-intl";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-const TABS = [
-  { id: "overview", label: "What happened" },
-  { id: "plan", label: "What to do" },
-  { id: "lawyers", label: "Get help" },
-];
+type TabId = "what" | "do" | "help";
 
 function deadlineTone(state: DeadlineState) {
   if (state === "urgent") return "urgent" as const;
@@ -34,15 +33,23 @@ function deadlineTone(state: DeadlineState) {
   return "neutral" as const;
 }
 
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <h2 className="text-[19px] font-semibold text-navy">{children}</h2>;
+}
+
 export default function CaseAnalysisPage() {
+  const t = useTranslations("analysis");
+  const common = useTranslations("common");
+  const tDeadline = useTranslations("deadline");
+  const locale = useLocale();
   const { caseId } = useParams<{ caseId: string }>();
   const router = useRouter();
   const [record, setRecord] = useState<CaseRecord | null>(null);
   const [analysis, setAnalysis] = useState<CaseAnalysis | null>(null);
   const [doc, setDoc] = useState<UploadedDocument | null>(null);
   const [desc, setDesc] = useState<ProblemDescription | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState("overview");
+  const [problem, setProblem] = useState<"not_found" | "not_ready" | null>(null);
+  const [tab, setTab] = useState<TabId>("what");
   const [aiOpen, setAiOpen] = useState(false);
   const [lawyers, setLawyers] = useState<LawyerProfile[]>([]);
 
@@ -50,11 +57,12 @@ export default function CaseAnalysisPage() {
     let cancelled = false;
     async function load() {
       const c = await caseRepository.getById(caseId);
+      if (cancelled) return;
       if (!c.ok) {
-        if (!cancelled) setError(c.message);
+        setProblem("not_found");
         return;
       }
-      if (!cancelled) setRecord(c.data);
+      setRecord(c.data);
       const [a, d, p, l] = await Promise.all([
         analysisService.getAnalysis(caseId),
         documentService.getByCaseId(caseId),
@@ -63,12 +71,14 @@ export default function CaseAnalysisPage() {
       ]);
       if (cancelled) return;
       if (a.ok) setAnalysis(a.data);
-      else setError(a.message);
+      else setProblem("not_ready");
       if (d.ok) setDoc(d.data);
       if (p.ok) setDesc(p.data);
       if (l?.ok) setLawyers(l.data);
     }
-    void load();
+    void load().catch(() => {
+      if (!cancelled) setProblem("not_ready");
+    });
     return () => {
       cancelled = true;
     };
@@ -83,13 +93,13 @@ export default function CaseAnalysisPage() {
     }).slice(0, 4);
   }, [lawyers, record]);
 
-  if (error) {
+  if (problem) {
     return (
       <AppPage>
-        <Alert tone="danger" title={record ? "Explanation not ready" : "Case not found"}>
-          {error}{" "}
-          <Link className="font-medium underline" href="/cases">
-            Back to cases
+        <Alert tone="danger" title={t(problem === "not_found" ? "errNotFoundTitle" : "errNotReadyTitle")}>
+          {t("errBody")}{" "}
+          <Link className="font-semibold underline" href="/cases">
+            {t("backToProblems")}
           </Link>
         </Alert>
       </AppPage>
@@ -105,187 +115,313 @@ export default function CaseAnalysisPage() {
     );
   }
 
-  const nextStep = analysis.nextSteps.slice().sort((a, b) => a.order - b.order)[0];
-  const attentionText =
-    analysis.risks[0]?.text ??
-    (() => {
-      const d = analysis.deadlines.find((item) => {
-        const state = deadlineState(item.date);
-        return state === "urgent" || state === "soon";
-      });
-      return d ? `${d.label} — ${formatDate(d.date)}` : null;
-    })();
+  const steps = analysis.nextSteps.slice().sort((a, b) => a.order - b.order);
+  // The most serious warnings first.
+  const risks = analysis.risks
+    .slice()
+    .sort((a, b) => Number(b.severity === "serious") - Number(a.severity === "serious"));
+  const sources = analysis.sources.filter((s) => isHttpsUrl(s.url));
 
-  const documentPane = (
-    <div className="space-y-3">
-      {doc?.previewUrl ? (
-        <div className="overflow-hidden rounded-2xl border border-border bg-white">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={doc.previewUrl} alt={`Preview of ${doc.fileName}`} className="w-full" />
-        </div>
-      ) : doc ? (
-        <EmptyState
-          title={doc.fileName}
-          body="In-browser PDF preview is not included in this prototype. The file name is stored locally only."
-        />
-      ) : (
-        <EmptyState title="No document in this file" body={desc?.narrative ?? "This case was started from a description."} />
-      )}
-      {desc ? (
-        <Card>
-          <p className="text-sm font-semibold text-navy">Your description</p>
-          <p className="mt-2 text-sm text-ink/90">{desc.narrative}</p>
-        </Card>
-      ) : null}
-      <h3 className="pt-2 text-[15px] font-semibold text-navy">Evidence checklist</h3>
-      <ul className="space-y-2">
-        {analysis.evidenceChecklist.map((e) => (
-          <li key={e.id} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-3 py-2 text-sm">
-            <span>{e.label}</span>
-            <Badge tone={e.status === "have" ? "success" : e.status === "missing" ? "warning" : "neutral"}>
-              {e.status === "have" ? "You have this" : e.status === "missing" ? "Missing" : "Optional"}
-            </Badge>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
+  function showWhatToDo() {
+    setTab("do");
+    // The button lives in the panel being hidden, so focus has to follow.
+    const tabButton = document.getElementById("case-tab-do");
+    tabButton?.focus();
+    tabButton?.scrollIntoView({ block: "start" });
+  }
+
+  function dateLine(date: string | undefined) {
+    const formatted = formatDate(date, locale);
+    const left = daysLeftParts(date);
+    if (!formatted || !left) return t("noDate");
+    return `${formatted} · ${tDeadline(left.key, left.values)}`;
+  }
 
   return (
     <AppPage>
-      <Link href="/cases" className="inline-flex min-h-11 items-center gap-1 text-[15px] font-medium text-muted hover:text-navy">
-        <ArrowLeft className="size-5" strokeWidth={1.75} />
-        Back
+      <Link
+        href="/cases"
+        className="inline-flex min-h-11 items-center gap-1 text-[16px] font-medium text-muted hover:text-navy"
+      >
+        <ArrowLeft className="size-5" strokeWidth={1.75} aria-hidden />
+        {common("back")}
       </Link>
       <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <h1 className="text-[24px] font-semibold tracking-tight text-navy">{record.title}</h1>
           <CaseStatusBadge status={record.status} />
         </div>
-        <Button variant="ai" onClick={() => setAiOpen(true)}>
-          Ask a question
+        <Button variant="ai" size="lg" onClick={() => setAiOpen(true)}>
+          <MessageCircle className="size-5" strokeWidth={1.75} aria-hidden />
+          {t("askQuestion")}
         </Button>
       </div>
 
-      <Tabs className="mt-4" items={TABS} value={tab} onChange={setTab} />
+      {/* Stays above the explanation on every screen size. */}
+      <p className="mt-4 flex items-start gap-2 rounded-xl bg-bg px-3 py-2.5 text-[15px] text-ink md:bg-pastel-blue">
+        <Info className="mt-0.5 size-5 shrink-0 text-info" strokeWidth={1.75} aria-hidden />
+        {t("notAdvice")}
+      </p>
 
-      {tab === "overview" ? (
-        <div className="mt-6 space-y-4">
-          <div className="rounded-2xl bg-pastel-blue p-5">
-            <h2 className="text-[18px] font-semibold text-navy">In simple words</h2>
-            <p className="mt-2 text-[16px] leading-relaxed text-ink/90">{analysis.plainLanguageSummary}</p>
+      <Tabs
+        className="mt-4"
+        idBase="case"
+        items={[
+          { id: "what", label: t("tabWhat") },
+          { id: "do", label: t("tabDo") },
+          { id: "help", label: t("tabHelp") },
+        ]}
+        value={tab}
+        onChange={(id) => setTab(id as TabId)}
+      />
+
+      <TabPanel idBase="case" id="what" active={tab === "what"} className="mt-6 space-y-4">
+        <div className="rounded-2xl bg-pastel-blue p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <SectionTitle>{t("simpleWords")}</SectionTitle>
+            <ListenButton text={analysis.plainLanguageSummary} />
           </div>
-          {attentionText ? (
-            <div className="rounded-2xl bg-pastel-red p-5">
-              <h2 className="text-[18px] font-semibold text-navy">Please notice</h2>
-              <p className="mt-2 text-[16px] leading-relaxed text-ink/90">{attentionText}</p>
-            </div>
-          ) : null}
-          <div className="ns-card p-5">
-            <h2 className="text-[18px] font-semibold text-navy">Important points</h2>
-            <ul className="mt-3 list-disc space-y-2 pl-5 text-[16px] leading-relaxed text-ink/90">
-              {analysis.keyFacts.slice(0, 5).map((fact) => (
-                <li key={fact}>{fact}</li>
+          <p className="mt-2 text-[17px] leading-relaxed text-ink">{analysis.plainLanguageSummary}</p>
+        </div>
+
+        {risks.length ? (
+          <div className="rounded-2xl bg-pastel-red p-5">
+            <SectionTitle>{t("notice")}</SectionTitle>
+            <ul className="mt-2 list-disc space-y-2 pl-5 text-[16px] leading-relaxed text-ink">
+              {risks.map((risk) => (
+                <li key={risk.id} className={risk.severity === "serious" ? "font-semibold" : undefined}>
+                  {risk.text}
+                </li>
               ))}
             </ul>
           </div>
-          <div className="rounded-2xl bg-pastel-orange p-5">
-            <h2 className="text-[18px] font-semibold text-navy">Do this next</h2>
-            <p className="mt-2 text-[16px] leading-relaxed text-ink/90">
-              {nextStep?.text ?? "Open What to do for a short list of steps."}
-            </p>
-            <Button className="mt-4" variant="navy" size="lg" onClick={() => setTab("plan")}>
-              See what to do
-            </Button>
-          </div>
-          <details className="ns-card p-5">
-            <summary className="cursor-pointer text-[16px] font-semibold text-navy">Your paper and extra detail</summary>
-            <div className="mt-4 space-y-4">
-              {documentPane}
-              {analysis.legalInformation.slice(0, 2).map((item) => (
-                <Card key={item.id}>
-                  <p className="font-medium text-navy">{item.title}</p>
-                  <p className="mt-1 text-[15px] text-ink/90">{item.summary}</p>
-                </Card>
-              ))}
-            </div>
-          </details>
-        </div>
-      ) : null}
+        ) : null}
 
-      {tab === "plan" ? (
-        <div className="mt-6 space-y-5">
-          <p className="text-[16px] text-muted">Do these one by one. You do not need to finish all today.</p>
-          <ol className="space-y-3">
-            {analysis.nextSteps
-              .slice()
-              .sort((a, b) => a.order - b.order)
-              .map((s) => (
-                <li key={s.id} className="flex gap-3 rounded-2xl bg-pastel-green p-4">
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-success text-sm font-semibold text-white">
-                    {s.order}
-                  </span>
-                  <p className="text-[16px] leading-snug text-ink">{s.text}</p>
-                </li>
-              ))}
-          </ol>
-          <h2 className="text-[18px] font-semibold text-navy">Dates</h2>
-          <ul className="space-y-3">
-            {analysis.deadlines.map((d) => (
-              <li key={d.id} className="flex flex-col gap-1 rounded-2xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="ns-card p-5">
+          <SectionTitle>{t("points")}</SectionTitle>
+          <ul className="mt-3 list-disc space-y-2 pl-5 text-[16px] leading-relaxed text-ink">
+            {analysis.keyFacts.map((fact, i) => (
+              <li key={i}>{fact}</li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="rounded-2xl bg-pastel-orange p-5">
+          <SectionTitle>{t("doNext")}</SectionTitle>
+          <p className="mt-2 text-[17px] leading-relaxed text-ink">{steps[0]?.text ?? t("doNextFallback")}</p>
+          <Button className="mt-4" variant="navy" size="lg" onClick={showWhatToDo}>
+            {t("seeWhatToDo")}
+          </Button>
+        </div>
+
+        <details className="ns-card p-5">
+          <summary className="min-h-11 cursor-pointer text-[17px] font-semibold text-navy">{t("details")}</summary>
+          <div className="mt-4 space-y-5">
+            {doc?.previewUrl ? (
+              <div className="overflow-hidden rounded-2xl border border-border bg-white">
+                {/* The sample pictures are small local files, so the image optimiser adds nothing. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={doc.previewUrl}
+                  alt={t("paperAlt", { name: doc.fileName })}
+                  width={800}
+                  height={1000}
+                  className="h-auto w-full"
+                />
+              </div>
+            ) : doc ? (
+              <EmptyState title={doc.fileName} body={t("noPreview")} />
+            ) : (
+              <EmptyState title={t("noPaperTitle")} body={t("noPaperBody")} />
+            )}
+
+            {desc ? (
+              <Card>
+                <h3 className="text-[16px] font-semibold text-navy">{t("yourStory")}</h3>
+                <p className="mt-2 text-[16px] leading-relaxed text-ink">{desc.narrative}</p>
+              </Card>
+            ) : null}
+
+            <div>
+              <h3 className="text-[17px] font-semibold text-navy">{t("papersToKeep")}</h3>
+              <ul className="mt-2 space-y-2">
+                {analysis.evidenceChecklist.map((e) => (
+                  <li
+                    key={e.id}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-3 py-2.5 text-[16px]"
+                  >
+                    <span>{e.label}</span>
+                    <Badge tone={e.status === "have" ? "success" : e.status === "missing" ? "warning" : "neutral"}>
+                      {t(e.status)}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {analysis.clauses.length ? (
+              <div>
+                <h3 className="text-[17px] font-semibold text-navy">{t("linesTitle")}</h3>
+                <ul className="mt-2 space-y-3">
+                  {analysis.clauses.map((clause) => (
+                    <li key={clause.id} className="rounded-xl border border-border bg-surface p-4">
+                      <p className="text-[16px] font-semibold text-navy">{clause.heading}</p>
+                      <p className="mt-1 text-[16px] leading-relaxed text-ink">{clause.plainLanguage}</p>
+                      {clause.excerpt ? (
+                        <p className="mt-2 border-l-4 border-border pl-3 text-[15px] text-muted">
+                          <span className="font-semibold">{t("fromPaper")}: </span>
+                          <span lang="en">{clause.excerpt}</span>
+                        </p>
+                      ) : null}
+                      {clause.whyItMatters ? (
+                        <p className="mt-2 text-[15px] text-ink">
+                          <span className="font-semibold">{t("whyItMatters")}: </span>
+                          {clause.whyItMatters}
+                        </p>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            <div>
+              <h3 className="text-[17px] font-semibold text-navy">{t("dutiesTitle")}</h3>
+              <ul className="mt-2 space-y-2">
+                {analysis.obligations.map((item) => (
+                  <li key={item.id} className="rounded-xl border border-border bg-surface px-3 py-2.5 text-[16px]">
+                    <span className="font-semibold text-navy">{t(`actor_${item.actor}`)}: </span>
+                    {item.text}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="text-[17px] font-semibold text-navy">{t("goodToKnow")}</h3>
+              <ul className="mt-2 space-y-3">
+                {analysis.legalInformation.map((item) => (
+                  <li key={item.id} className="rounded-xl border border-border bg-surface p-4">
+                    <Badge tone="demo">{t("sampleNotChecked")}</Badge>
+                    <p className="mt-2 text-[16px] font-semibold text-navy">{item.title}</p>
+                    <p className="mt-1 text-[16px] leading-relaxed text-ink">{item.summary}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </details>
+      </TabPanel>
+
+      <TabPanel idBase="case" id="do" active={tab === "do"} className="mt-6 space-y-5">
+        <p className="text-[16px] text-muted">{t("stepsIntro")}</p>
+        <ol className="space-y-3">
+          {steps.map((s) => (
+            <li key={s.id} className="flex gap-3 rounded-2xl bg-pastel-green p-4">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-success text-[16px] font-semibold text-white">
+                {s.order}
+              </span>
+              <p className="text-[17px] leading-snug text-ink">{s.text}</p>
+            </li>
+          ))}
+        </ol>
+
+        <SectionTitle>{t("dates")}</SectionTitle>
+        <ul className="space-y-3">
+          {analysis.deadlines.map((d) => {
+            const state = deadlineState(d.date);
+            return (
+              <li
+                key={d.id}
+                className="flex flex-col gap-2 rounded-2xl border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between"
+              >
                 <div>
-                  <p className="text-[16px] font-medium text-navy">{d.label}</p>
-                  <p className="text-[14px] text-muted">
-                    {d.date ? `${formatDate(d.date)} · ${daysLeftText(d.date)}` : "No date written"}
-                  </p>
-                  {d.note ? <p className="mt-1 text-[14px] text-muted">{d.note}</p> : null}
+                  <p className="text-[16px] font-semibold text-navy">{d.label}</p>
+                  <p className="text-[16px] text-ink">{dateLine(d.date)}</p>
+                  {d.note ? <p className="mt-1 text-[15px] text-muted">{d.note}</p> : null}
                 </div>
-                <Badge tone={deadlineTone(deadlineState(d.date))}>
-                  {DEADLINE_STATE_LABEL[deadlineState(d.date)]}
+                <Badge tone={deadlineTone(state)} className="self-start sm:self-center">
+                  {tDeadline(state)}
                 </Badge>
               </li>
-            ))}
-          </ul>
-          <h2 className="text-[18px] font-semibold text-navy">Things we still need</h2>
-          <ul className="space-y-3">
-            {analysis.missingInformation.map((m) => (
-              <li key={m.id} className="rounded-2xl border border-dashed border-border p-4">
-                <p className="text-[16px] font-medium text-navy">{m.question}</p>
-                <p className="mt-1 text-[14px] text-muted">{m.whyNeeded}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+            );
+          })}
+        </ul>
 
-      {tab === "lawyers" ? (
-        <div className="mt-6 space-y-3">
-          {env.advocatesEnabled ? (
-            <>
-              <p className="text-[16px] text-muted">
-                These are sample people so you can try the app. Free legal aid is also listed below.
-              </p>
-              {ranked.map(({ lawyer, match }) => (
-                <LawyerCard
-                  key={lawyer.id}
-                  lawyer={lawyer}
-                  match={match}
-                  onConsult={() => router.push(`/messages?lawyerId=${lawyer.id}`)}
-                />
+        {analysis.missingInformation.length ? (
+          <>
+            <SectionTitle>{t("stillNeed")}</SectionTitle>
+            <ul className="space-y-3">
+              {analysis.missingInformation.map((m) => (
+                <li key={m.id} className="rounded-2xl border border-dashed border-border p-4">
+                  <p className="text-[16px] font-semibold text-navy">{m.question}</p>
+                  <p className="mt-1 text-[15px] text-muted">{m.whyNeeded}</p>
+                </li>
               ))}
-            </>
-          ) : (
-            <p className="text-[16px] text-muted">
-              If you need a person, start with free legal aid. It is a government service.
-            </p>
-          )}
-          <Link href="/legal-aid" className="ns-card mt-2 block p-5 text-[16px] font-semibold text-primary">
-            Free legal aid and official help →
-          </Link>
-        </div>
-      ) : null}
+            </ul>
+          </>
+        ) : null}
 
-      <Sheet open={aiOpen} onClose={() => setAiOpen(false)} title="Ask a question">
+        {analysis.questionsForLawyer.length ? (
+          <>
+            <SectionTitle>{t("questionsTitle")}</SectionTitle>
+            <ul className="list-disc space-y-2 pl-5 text-[16px] leading-relaxed text-ink">
+              {analysis.questionsForLawyer.map((question, i) => (
+                <li key={i}>{question}</li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+      </TabPanel>
+
+      <TabPanel idBase="case" id="help" active={tab === "help"} className="mt-6 space-y-4">
+        <p className="text-[17px] text-ink">{t("helpIntro")}</p>
+        <Link
+          href="/legal-aid"
+          className="flex min-h-14 items-center gap-3 rounded-2xl bg-primary px-5 text-[17px] font-semibold text-white hover:bg-primary-hover"
+        >
+          <LifeBuoy className="size-6 shrink-0" strokeWidth={1.75} aria-hidden />
+          {t("helpLink")}
+        </Link>
+
+        {sources.length ? (
+          <>
+            <SectionTitle>{t("sourcesTitle")}</SectionTitle>
+            <ul className="space-y-2">
+              {sources.map((source) => (
+                <li key={source.id}>
+                  <a
+                    href={source.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ns-card flex items-start gap-3 p-4 hover:border-primary/30"
+                  >
+                    <ExternalLink className="mt-0.5 size-5 shrink-0 text-primary" strokeWidth={1.75} aria-hidden />
+                    <span>
+                      <span className="block text-[16px] font-semibold text-navy">{source.label}</span>
+                      <span className="mt-1 block text-[15px] text-muted">{source.note}</span>
+                    </span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+
+        {/* Advocate listings: switched off, and not translated. See lib/env.ts. */}
+        {env.advocatesEnabled
+          ? ranked.map(({ lawyer, match }) => (
+              <LawyerCard
+                key={lawyer.id}
+                lawyer={lawyer}
+                match={match}
+                onConsult={() => router.push(`/messages?lawyerId=${lawyer.id}`)}
+              />
+            ))
+          : null}
+      </TabPanel>
+
+      <Sheet open={aiOpen} onClose={() => setAiOpen(false)} title={t("askQuestion")}>
         <AskAiPanel caseId={caseId} />
       </Sheet>
     </AppPage>

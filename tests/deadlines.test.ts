@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { daysLeftText, deadlineState, nextDeadline } from "@/lib/deadlines";
+import { daysLeftParts, deadlineState, nextDeadline } from "@/lib/deadlines";
 import { daysUntil } from "@/lib/format";
 
 // Late evening, to catch off-by-one errors around midnight.
@@ -32,14 +32,13 @@ describe("deadlineState", () => {
   });
 });
 
-describe("daysLeftText", () => {
-  it("uses plain words", () => {
-    expect(daysLeftText("2026-10-09", today)).toBe("Today");
-    expect(daysLeftText("2026-10-10", today)).toBe("Tomorrow");
-    expect(daysLeftText("2026-10-18", today)).toBe("9 days left");
-    expect(daysLeftText("2026-10-08", today)).toBe("Yesterday");
-    expect(daysLeftText("2026-10-01", today)).toBe("8 days ago");
-    expect(daysLeftText(undefined, today)).toBeNull();
+describe("daysLeftParts", () => {
+  it("says whether the date is ahead or behind, and by how many days", () => {
+    expect(daysLeftParts("2026-10-09", today)).toEqual({ key: "left", values: { days: 0, count: "0" } });
+    expect(daysLeftParts("2026-10-18", today)).toEqual({ key: "left", values: { days: 9, count: "9" } });
+    expect(daysLeftParts("2026-10-08", today)).toEqual({ key: "ago", values: { days: 1, count: "1" } });
+    expect(daysLeftParts("2026-10-01", today)).toEqual({ key: "ago", values: { days: 8, count: "8" } });
+    expect(daysLeftParts(undefined, today)).toBeNull();
   });
 });
 

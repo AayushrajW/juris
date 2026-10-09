@@ -2,22 +2,21 @@
 
 import { Alert } from "@/components/ui/Display";
 import { AppPage } from "@/components/ui/AppKit";
+import { cn } from "@/lib/cn";
 import { analysisService, caseRepository } from "@/services";
+import { useTranslations } from "use-intl";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-const STEPS = [
-  "Queued in this demo",
-  "Reading the file you attached (simulated)",
-  "Drafting a plain-language layout (simulated)",
-];
+const STEPS = ["step1", "step2", "step3"] as const;
 
 export default function ProcessingPage() {
+  const t = useTranslations("processing");
   const params = useParams<{ caseId: string }>();
   const router = useRouter();
   const [active, setActive] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -28,8 +27,9 @@ export default function ProcessingPage() {
 
     async function run() {
       const existing = await caseRepository.getById(params.caseId);
+      if (cancelled) return;
       if (!existing.ok) {
-        if (!cancelled) setError(existing.message);
+        setFailed(true);
         return;
       }
       if (existing.data.status === "ready" || existing.data.status === "needs_more_info") {
@@ -39,13 +39,15 @@ export default function ProcessingPage() {
       const result = await analysisService.startProcessing(params.caseId);
       if (cancelled) return;
       if (!result.ok) {
-        setError(result.message);
+        setFailed(true);
         return;
       }
       router.replace(`/cases/${params.caseId}`);
     }
 
-    void run();
+    void run().catch(() => {
+      if (!cancelled) setFailed(true);
+    });
     return () => {
       cancelled = true;
       timers.forEach(clearTimeout);
@@ -54,27 +56,30 @@ export default function ProcessingPage() {
 
   return (
     <AppPage className="max-w-lg">
-      <h1 className="text-[22px] font-semibold text-navy">Preparing an explanation</h1>
-      <p className="mt-2 text-sm text-muted">Simulated processing for this demo. No OCR or Gemini call is running.</p>
-      <ol className="mt-8 space-y-3">
-        {STEPS.map((label, i) => (
-          <li
-            key={label}
-            className={`rounded-2xl border px-4 py-3 text-sm ${
-              i <= active ? "border-primary/30 bg-pastel-purple text-navy" : "border-border text-muted"
-            }`}
-          >
-            {i < active ? "Done — " : i === active ? (error ? "Stopped — " : "In progress — ") : "Waiting — "}
-            {label}
-          </li>
-        ))}
+      <h1 className="text-[24px] font-semibold text-navy">{t("title")}</h1>
+      <p className="mt-2 text-[15px] text-muted">{t("subtitle")}</p>
+      <ol className="mt-8 space-y-3" aria-live="polite">
+        {STEPS.map((key, i) => {
+          const state = i < active ? "done" : i === active ? (failed ? "stopped" : "working") : "waiting";
+          return (
+            <li
+              key={key}
+              className={cn(
+                "rounded-2xl border px-4 py-3 text-[16px]",
+                i <= active ? "border-primary/30 bg-pastel-blue text-navy" : "border-border text-muted",
+              )}
+            >
+              <span className="font-semibold">{t(state)}</span> — {t(key)}
+            </li>
+          );
+        })}
       </ol>
-      {error ? (
+      {failed ? (
         <div className="mt-6">
-          <Alert tone="danger" title="Could not finish">
-            {error}{" "}
-            <Link className="font-medium underline" href="/cases">
-              Back to my problems
+          <Alert tone="danger" title={t("errTitle")}>
+            {t("errBody")}{" "}
+            <Link className="font-semibold underline" href="/cases">
+              {t("backToProblems")}
             </Link>
           </Alert>
         </div>

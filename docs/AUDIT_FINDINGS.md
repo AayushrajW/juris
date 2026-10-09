@@ -4,7 +4,8 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 ## How to read this
 
-- **Open findings:** 13 critical, 35 high, 107 medium, 49 low. Several describe the same root cause from different angles (for example the fake sign-in appears under security, correctness and architecture).
+- **Status on 9 October 2026:** 86 findings are fixed and stay listed with what was done. 30 more are partly done or switched off.
+- **Open findings:** 11 critical, 19 high, 69 medium, 21 low. Several describe the same root cause from different angles (for example the fake sign-in appears under security, correctness and architecture).
 - **Severity** is judged against a public launch handling real people's legal papers, not against a demo.
 - **Effort:** S is under half a day, M is up to about three days, L is a week or more.
 - **Status** says how far each finding has been checked. "Reproduced first-hand" means it was observed happening in the running app, or confirmed with tooling such as `npm audit`. "Code review" means a reviewer read the code and reported it; "Confirmed by a second reviewer" means an independent reviewer re-read the code and agreed.
@@ -34,19 +35,19 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Impact:** Running document.cookie="juris_session=x" in devtools passes the only server-side gate. The cookie is readable by any script (XSS, extensions), is sent over plain HTTP, carries a static guessable value ("user-meera") that authenticates nothing, lasts 14 days with no idle timeout, rotation or server-side revocation, and clearCookie (line 12) cannot invalidate a copied value.
 - **Fix:** Issue the cookie only from the server: Set-Cookie: __Host-juris_session=<signed/opaque token>; HttpOnly; Secure; SameSite=Lax; Path=/ from app/api/session/route.ts, with a short absolute lifetime (for example 5 days) plus idle expiry and revocation on sign-out (adminAuth.revokeRefreshTokens). Keep middleware.ts as a cheap UX redirect only, and verify the session cryptographically (verifySessionCookie(cookie, true)) inside a server-only helper such as lib/auth/requireUser.ts that every route handler / server action calls before touching data. Offer a 'shared device' option at sign-in that issues a session-only cookie.
 
-### SEC-05 · critical · Framework pinned to next 15.5.9, which carries critical RCE advisories
+### SEC-05 · fixed · Framework pinned to next 15.5.9, which carries critical RCE advisories
 
 - **Where:** `package.json:14`
 - **Effort:** S
-- **Status:** Reproduced first-hand
+- **Status:** Fixed in Phase 0: moved to Next.js 16.4; production dependencies audit clean.
 - **Impact:** Per the established npm audit result, the exact-pinned version is affected by GHSA-p293-qw3h-jr36 and GHSA-2xp9-vwfh-vxw4 (1 critical + 3 high including transitive postcss, sharp and source-map-js). An exact pin means no patch release is ever picked up automatically; react/react-dom are also pinned to 19.1.0 and eslint-config-next to 15.5.9. There is no engines field or .nvmrc (Glob confirmed), @types/node is ^20 although Node 20 is past end-of-life, and there is no CI to run npm audit.
 - **Fix:** Upgrade next and eslint-config-next to the patched release named in those advisories (latest 15.5.x or current stable major), bump react/react-dom to the matching patched release, run npm audit fix and rebuild. Add "engines": { "node": ">=22" }, put package-lock.json under version control once the folder is a git repo, enable Dependabot or Renovate, and add a CI step: npm audit --omit=dev --audit-level=high.
 
-### SEC-03 · high · getSession() fabricates a logged-in user from any cookie and otherwise trusts a user object stored in localStorage
+### SEC-03 · fixed · getSession() fabricates a logged-in user from any cookie and otherwise trusts a user object stored in localStorage
 
 - **Where:** `services/mock/auth.ts:53`
 - **Effort:** M
-- **Status:** Reproduced first-hand
+- **Status:** Fixed in Phase 0: a cookie with no session behind it now signs the person out instead of creating a user.
 - **Impact:** Identity and role are client-authoritative. A stale or garbage cookie left by a previous person silently logs the next visitor in as Meera Iyer (middleware.ts:32 even redirects them from /sign-in to /dashboard). Line 49 returns the localStorage user without consulting the cookie, so that 'session' never expires, and editing juris-mock-v1.user in devtools changes id/email/role at will. The user.id from this object is what pages pass to the data layer (dashboard/page.tsx:26, cases/new/page.tsx:87), so with a backend it becomes an impersonation primitive. The regex at line 51 is unanchored and also matches any cookie whose name merely ends in juris_session.
 - **Fix:** Delete the fabrication branch (lines 50-55) and stop persisting the user in MockStore. Resolve the session on the server: read and verify the cookie in app/layout.tsx (or a GET /api/session handler) and pass the resulting user into SessionProvider as an initial prop; useSession.refresh() should refetch from that endpoint. Roles must come from verified token claims, never from client storage.
 
@@ -58,19 +59,19 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Impact:** A second person who signs in with a different email on the same browser receives id user-meera, and caseRepository.listByCitizen(user.id) returns the first person's cases, narratives, documents, AI chats and advocate messages. If this id scheme were carried into a backend, every citizen would be in a single tenant.
 - **Fix:** Take user ids only from the identity provider (uid). Remove demoUserFromName, namespace every client-side cache key by uid, and seed DEMO_CASES only for an explicit demo account behind a flag rather than for every session (services/mock/store.ts seed()).
 
-### SEC-06 · high · Open redirect and javascript:-scheme DOM XSS through the unvalidated "next" query parameter on sign-in
+### SEC-06 · fixed · Open redirect and javascript:-scheme DOM XSS through the unvalidated "next" query parameter on sign-in
 
 - **Where:** `app/(auth)/sign-in/page.tsx:34`
 - **Effort:** S
-- **Status:** Reproduced first-hand
+- **Status:** Fixed in Phase 0: only same-site paths are followed after sign-in. Checked in the running app.
 - **Impact:** A link to the genuine domain such as /sign-in?next=https://evil.example sends the user to an attacker page immediately after they sign in (ideal for a 'session expired, re-enter OTP' phish). Verified against the installed Next build: router.push treats any URL whose origin differs as external (node_modules/next/dist/client/components/app-router.js:59-61) and calls location.assign on it (line 275) with no scheme filter, so next=javascript:... executes attacker script in the app origin, where it can read the entire juris-mock-v1 store (and, later, call authenticated APIs). There is no CSP to stop it (SEC-09).
 - **Fix:** Add lib/safeRedirect.ts exporting safeNext(raw): return "/dashboard" unless raw starts with a single "/" (reject "//", "/\\" and any backslash), then parse with new URL(raw, window.location.origin) and require url.origin === window.location.origin; return pathname + search + hash. Optionally allow-list against the protected route prefixes. Use it at sign-in/page.tsx:16 and unit-test with https://evil, //evil, /\evil, javascript:alert(1) and %2F%2Fevil.
 
-### SEC-07 · high · Sign-out leaves every case, narrative, chat and advocate message on the device
+### SEC-07 · fixed · Sign-out leaves every case, narrative, chat and advocate message on the device
 
 - **Where:** `services/mock/auth.ts:44`
 - **Effort:** S
-- **Status:** Confirmed by a second reviewer
+- **Status:** Fixed in Phase 0: sign-out, and any session that ends another way, removes everything stored in the browser. Checked in the running app.
 - **Impact:** Only the user field is nulled; cases, documents, descriptions, analyses, chats and lawyerThreads stay in localStorage, as does the separate juris-lawyer-bookmarks key (lib/bookmarks.ts:1). On a shared family phone or cyber-cafe PC the next person who presses Continue on the sign-in form sees the previous person's legal matters (combined with SEC-04). For family or police-category matters this is a personal-safety risk, not just a privacy one.
 - **Fix:** In signOut, remove both storage keys (localStorage.removeItem for STORAGE_KEY and the bookmarks key), reset the module-level memory variable in store.ts to seed(), revoke any object URLs, call the server to revoke the session, then force a full reload (window.location.assign("/")) so no React state survives. Add a visible 'Remove my data from this device' action in app/(citizen)/settings/page.tsx.
 
@@ -81,11 +82,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Adjusted by a second reviewer: Accurate (store.ts:70, single key juris-mock-v1, no expiry or per-user scoping), but localStorage is the declared mock persistence layer and the practical harm is already captured by SEC-07 and SEC-06. The 'unversioned key' remark is not a security issue.
 - **Fix:** Make the server the system of record (Firestore/Postgres in an India region with encryption at rest) and keep only in-memory state on the client. If offline drafts are required, namespace by uid, encrypt with WebCrypto AES-GCM using a non-persisted per-session key, and apply a TTL. Add a shared-device mode (sessionStorage only, short session), a quick-exit control and a 'clear this device' button; move bookmarks into the same per-user store.
 
-### SEC-09 · medium · No security headers or Content-Security-Policy are configured
+### SEC-09 · fixed · No security headers or Content-Security-Policy are configured
 
 - **Where:** `next.config.ts:3`
 - **Effort:** M
-- **Status:** Adjusted by a second reviewer: next.config.ts is empty and middleware.ts sets no headers, so the claim is true. Missing headers are defence in depth; medium is the usual rating, raised in practice only because SEC-06 currently has no CSP backstop.
+- **Status:** Fixed in Phase 0: per-request nonce content security policy and standard security headers. Checked in a production build.
 - **Fix:** In next.config.ts set poweredByHeader: false and add async headers() for source "/(.*)": Strict-Transport-Security: max-age=63072000; includeSubDomains; preload, X-Content-Type-Options: nosniff, X-Frame-Options: DENY, Referrer-Policy: strict-origin-when-cross-origin, Permissions-Policy: camera=(self), microphone=(), geolocation=(). Generate a per-request nonce in middleware.ts and emit a CSP (default-src 'self'; script-src 'self' 'nonce-...' 'strict-dynamic'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self' plus API origins; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'), starting in Report-Only. Add Cache-Control: no-store for the citizen routes.
 
 ### SEC-10 · medium · Service contract lets the client name the citizen: listByCitizen(citizenId) and createDraft(citizenId, ...) are IDOR by design
@@ -113,7 +114,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `services/types.ts:68`
 - **Effort:** M
-- **Status:** Adjusted by a second reviewer: LawyerThread carries only lawyerId (domain/thread.ts) and the store keeps one global lawyerThreads array (store.ts:21). Present impact is the shared-device leak already counted in SEC-04/07, and the advocates are fictional with canned replies.
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** Remodel as threads with threadId, citizenId, lawyerId and participantIds; derive the citizen from the session on the server; give advocates a separate authenticated role tied to a verified enrolment; enforce request.auth.uid in resource.data.participantIds in storage rules; consider field-level encryption for message bodies and define a retention period.
 
 ### SEC-14 · medium · Untrusted user and document text is interpolated straight into AI-attributed output: prompt-injection exposure for the planned LLM pipeline
@@ -134,7 +135,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `components/ui/FileDropzone.tsx:53`
 - **Effort:** M
-- **Status:** Adjusted by a second reviewer: The logic at FileDropzone.tsx:53 is exactly as described: empty file.type is accepted, extension alone suffices, and image/heic is allowed at line 51 but absent from the regex, accept attribute and error text. No file bytes are uploaded or parsed anywhere (only metadata and an object URL are kept), so the impact is limited until a server-side upload exists.
+- **Status:** Partly done: the browser-side check is tightened. Server-side checks arrive with real uploads (Phase 2).
 - **Fix:** Client: make the check fail closed (require an allowed type or, when type is empty, an allowed extension), sniff magic bytes with file.slice(0, 12), and align allow-list, regex, accept and message; either support HEIC end-to-end (convert server-side) or drop it. Server (new upload endpoint): re-validate size and magic bytes, re-encode images to strip EXIF/GPS, flatten or sanitise PDFs, malware-scan, generate the storage object name server-side (never from fileName), enforce per-user quotas, and serve files from a separate origin via short-lived signed URLs with Content-Disposition: attachment and nosniff.
 
 ### SEC-17 · medium · No way to delete a case, a document or an account, and no data export, in either the UI or the service contracts
@@ -144,11 +145,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Adjusted by a second reviewer: No delete or export method exists on any interface in services/types.ts and settings/page.tsx:50 offers only Sign out. Because all data sits in the user's own browser, the legal exposure starts when a backend stores it; the present harm is the shared-device case in SEC-07.
 - **Fix:** Add deleteCase(caseId), deleteDocument(documentId), deleteAccount() and exportMyData() to the contracts and implement them server-side with cascading deletion of documents, analyses, chats and threads plus storage objects. Add 'Delete this problem', 'Download my data' and 'Delete my account' controls in app/(citizen)/settings/page.tsx and the case page, define a retention schedule for abandoned cases, and record deletions in an audit log.
 
-### SEC-18 · medium · /assistant?q= auto-submits a chat message on page load (state-changing GET)
+### SEC-18 · fixed · /assistant?q= auto-submits a chat message on page load (state-changing GET)
 
 - **Where:** `components/assistant/AskAiPanel.tsx:28`
 - **Effort:** S
-- **Status:** Reproduced first-hand
+- **Status:** Fixed in Phase 0: a question in the address is no longer sent, or read, at all.
 - **Fix:** Use q only to pre-fill the input (setText(seedQuestion)) and require an explicit Send press; then router.replace("/assistant") to drop it from the URL. When the chat endpoint exists make it POST-only with an Origin check and per-user rate limits.
 
 ### SEC-19 · medium · Chat and thread stores accept arbitrary ids taken from the URL, with no existence or ownership check
@@ -158,11 +159,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Reproduced first-hand
 - **Fix:** Validate ids against a strict pattern (for example /^[A-Za-z0-9_-]{1,64}$/) at the page boundary and in each service; have chat.send/list first resolve the case via the owner-scoped lookup from SEC-11 and return not_found otherwise; have lawyerChat.send verify the advocate exists via lawyerRepository.getById; store keyed collections in a Map or prefixed keys rather than a bare object; encodeURIComponent ids when building URLs (messages/page.tsx:135); add app/error.tsx.
 
-### SEC-20 · medium · Route protection is fail-open: two hand-maintained lists in middleware, no deny-by-default, and no coverage for future API routes
+### SEC-20 · fixed · Route protection is fail-open: two hand-maintained lists in middleware, no deny-by-default, and no coverage for future API routes
 
 - **Where:** `middleware.ts:41`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: every path needs a session unless it is on a short public list. Checked in the running app.
 - **Fix:** Invert to deny-by-default: one broad matcher such as "/((?!_next/static|_next/image|favicon.ico|demo/).*)" and a small PUBLIC_PATHS allow-list (["/", "/sign-in", "/sign-up", "/forgot-password"]) in lib/constants.ts. Treat middleware as a redirect convenience only and enforce authentication again inside every server action and route handler through requireUser().
 
 ### SEC-21 · medium · Analysis pipeline is orchestrated by the client: opening a URL starts processing and the client can set case status
@@ -186,11 +187,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Change the contract so the client sends the File (or uploads to a server-issued signed URL) and the server derives mimeType, byteSize, kind and a storage path. Never accept or persist previewUrl from the client; return short-lived signed URLs on read and allow only https from the storage host or blob: for local previews before rendering. Call URL.revokeObjectURL on remove, replace and unmount.
 
-### SEC-24 · medium · Password fields are decorative: sign-up input is uncontrolled and discarded, with no autocomplete, required or strength rules
+### SEC-24 · fixed · Password fields are decorative: sign-up input is uncontrolled and discarded, with no autocomplete, required or strength rules
 
 - **Where:** `app/(auth)/sign-up/page.tsx:49`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: the password fields that did nothing are gone; phone sign-in replaces them in Phase 1.
 - **Fix:** If passwords are kept: controlled field with name, autoComplete="new-password", required, minimum 12 characters (or NIST-style length plus breached-password check via the IdP), show/hide toggle, and server-side hashing handled by the IdP only. Preferably drop passwords for OTP / email-link sign-in. Until real auth lands, remove the password inputs entirely rather than collecting secrets that are thrown away.
 
 ### SEC-25 · medium · Hard-coded privacy assurances will become false statements once uploads or a model are connected
@@ -200,32 +201,32 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Move all data-handling statements into one constants module driven by the active data source (mock vs live) and review them as part of the release checklist. For launch, replace them with an accurate short notice (what is uploaded, who processes it, how long it is kept, how to delete) linking to the privacy policy.
 
-### SEC-26 · medium · Record ids are predictable timestamps
+### SEC-26 · fixed · Record ids are predictable timestamps
 
 - **Where:** `services/mock/cases.ts:25`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: ids are random.
 - **Fix:** Generate ids on the server with crypto.randomUUID() or the datastore's auto-id; never accept client-generated primary keys. Unpredictable ids are defence in depth only, so keep the ownership checks.
 
 ### SEC-27 · medium · Advocate "Verified" badge is a bare boolean with no verification provenance
 
 - **Where:** `domain/lawyer.ts:17`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** Replace the boolean with a verification object (barCouncil, enrolmentNumber, verifiedAt, verifiedBy, evidenceRef, expiresAt) writable only by an admin role after a manual Bar Council enrolment check; render the badge only when it is present and unexpired; hide rating/review counts until they are backed by real data; remove the hard-coded presence indicator.
 
-### SEC-28 · low · Sign-out does not reset the in-memory session; SessionProvider keeps the previous user
+### SEC-28 · fixed · Sign-out does not reset the in-memory session; SessionProvider keeps the previous user
 
 - **Where:** `app/(citizen)/settings/page.tsx:25`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: sign-out reloads the page, dropping everything held in memory.
 - **Fix:** Call await refresh() after signOut, or better, finish sign-out with window.location.assign("/") so all client state is discarded; reset memory in store.ts as part of SEC-07.
 
-### SEC-29 · low · Password-reset contract enables account enumeration and validates email with includes("@")
+### SEC-29 · fixed · Password-reset contract enables account enumeration and validates email with includes("@")
 
 - **Where:** `services/mock/auth.ts:32`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: the password-reset screen and its service method are removed.
 - **Fix:** Make the reset response uniform ('If an account exists, we have sent a link') regardless of outcome, rate-limit by IP and by address, and validate email format with the same zod schema used at sign-up.
 
 ### SEC-30 · low · Persisted state is deserialised with a type assertion and no schema validation
@@ -242,25 +243,25 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Set autoComplete="off" (and spellCheck={false} where enhanced/cloud spellcheck is a concern) on the chat input, case title, outcome and narrative fields via the Input/Textarea wrappers in components/ui/Field.tsx.
 
-### SEC-32 · low · External links have no rel attribute, and data-driven link fields have no scheme allow-list
+### SEC-32 · fixed · External links have no rel attribute, and data-driven link fields have no scheme allow-list
 
 - **Where:** `app/(citizen)/resources/page.tsx:17`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: external links carry rel="noopener noreferrer" and only https links from data are rendered.
 - **Fix:** Create one ExternalLink component that adds target="_blank", rel="noopener noreferrer" and an 'opens official site' label, and that renders nothing unless the URL parses as https and the host is on an allow-list (gov.in, nic.in and named exceptions). Use it for all current links and for any future rendering of analysis.sources.
 
-### SEC-33 · low · Auth redirect drops the original query from "next" and leaks it onto the sign-in URL
+### SEC-33 · fixed · Auth redirect drops the original query from "next" and leaks it onto the sign-in URL
 
 - **Where:** `middleware.ts:28`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: the redirect to sign-in keeps the full original address.
 - **Fix:** Build the redirect from a clean URL: const url = new URL("/sign-in", request.url); url.searchParams.set("next", pathname + request.nextUrl.search); and validate it on arrival with safeNext from SEC-06.
 
-### SEC-34 · low · No environment template or validation, and .gitignore would exclude a .env.example
+### SEC-34 · fixed · No environment template or validation, and .gitignore would exclude a .env.example
 
 - **Where:** `.gitignore:34`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: .env.example added and tracked; a malformed setting fails the build.
 - **Fix:** Add !.env.example after line 34 and commit a placeholder-only .env.example; add patterns for service-account files (for example *-firebase-adminsdk-*.json, serviceAccount*.json); add lib/env.server.ts with zod validation (see SEC-12); enable secret scanning (gitleaks pre-commit and in CI) when the repository is initialised.
 
 ## Legal, regulatory and content integrity
@@ -271,7 +272,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `lib/lawyerMatch.ts:70`
 - **Effort:** M
-- **Status:** Confirmed by a second reviewer
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Impact:** BCI Rules Part VI Ch. II Rule 36 bars advocates from soliciting or advertising 'directly or indirectly'. Verified by web search: after the Madras High Court judgment of 3 July 2024 (P.N. Vignesh, WP 31281/2019) the BCI's 8 July 2024 press release sent cease-and-desist notices to Quikr, Sulekha, JustDial and Grotal and told State Bar Councils to discipline advocates who solicit through online portals. Sulekha's SLP(C) 25794/2024 had notice issued on 11 Nov 2024 and was tagged with JustDial's SLP(C) 17844/2024; I could not confirm any later order. A platform that scores, ranks and recommends advocates is the model targeted. Listed advocates risk proceedings under Advocates Act s.35 and the platform risks BCI complaints, takedown demands and loss of s.79 safe harbour. The score is also arbitrary (base 58, cap 98), claims 'Speaks your language' without knowing the user's language, and uses 'jurisdiction' wrongly (an enrolled advocate may practise across India under Advocates Act s.30). The spec itself put 'Matching algorithm / ranking service' out of scope (docs/PHASE1_IMPLEMENTATION_PLAN.md:66).
 - **Fix:** Delete `matchLawyer`/`sortLawyersByMatch`, the `MatchScore` component, the 'Why this person?' block and the '% match' line on the profile and bookmarks pages. Replace with a neutral directory: user-driven filters (place, practice area, language), then alphabetical or per-session random order with the ordering rule stated on the page. Show only the fields the Rule 36 proviso Schedule permits (name, address, phone, email, enrolment number and date, State Bar Council, bar association, qualifications, areas of practice). No platform recommendation, no paid placement. Put legal-aid routes (NALSA/SLSA/DLSA, Tele-Law, Nyaya Bandhu) above any private directory. Lawyer sign-off: REQUIRED. Get a written opinion on the pending Supreme Court SLPs before listing any real advocate.
 
@@ -295,7 +296,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `data/mocks/lawyers.ts:17`
 - **Effort:** S
-- **Status:** Confirmed by a second reviewer
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Impact:** Ratings, testimonials, caseload and success claims are outside the Rule 36 proviso Schedule (verified: the Schedule permits only name, address, phone, email, enrolment details, bar council/association, qualifications and areas of practice; anything more is treated as a Rule 36 violation). The BCI's 17 March 2025 press release (verified) again condemned promotional content for advocates. Publishing a success rate also undercuts the product's own 'no outcome guarantee' promise. With invented numbers, as here, it is additionally a misleading advertisement under Consumer Protection Act 2019 s.2(28) and conflicts with the BIS online-review standard IS 19000:2022. The data model bakes these fields into `LawyerProfile`, so a real backend will inherit them.
 - **Fix:** Remove `rating`, `reviewCount`, `casesHandledLabel`, `successRateLabel` and the `yearsExperience` scoring from domain/lawyer.ts, data/mocks/lawyers.ts, LawyerCard.tsx and the profile page. Remove the 'Reviews' and 'Experience' tabs (lawyers/[lawyerId]/page.tsx:18-24). Show 'Enrolled since <year>' taken from the enrolment date instead of an experience claim. Collect user feedback privately for quality control and do not publish it per advocate. Lawyer sign-off: REQUIRED.
 
@@ -303,11 +304,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `components/lawyers/LawyerCard.tsx:36`
 - **Effort:** M
-- **Status:** Confirmed by a second reviewer
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Impact:** A bare 'Verified' tick tells a citizen the platform vouches for the person. It is a boolean with no record of what was checked, against which roll, by whom or when. If a fake or suspended 'advocate' is listed, the platform has made an express false representation (Consumer Protection Act 2019 misleading advertisement and unfair trade practice) to people in distress, and it reads as an endorsement for Rule 36 purposes. In the demo it sits beside a 'Demo' badge and directly contradicts `enrollmentDisplay: "Demo enrolment (not a real advocate)"`. The spec says success colour is for process states, 'not legally verified' (docs/PHASE1_IMPLEMENTATION_PLAN.md:516).
 - **Fix:** Replace `verified: boolean` with a structured object, e.g. `enrolment: { number, stateBarCouncil, enrolledOn, checkedOn, checkedAgainst, copStatus }`. Render a factual line ('Enrolment no. X, Bar Council of Y, checked against the roll on <date>') instead of a tick. Build an onboarding check (enrolment certificate, Certificate of Practice status, ID match) and a periodic re-check and delisting process before any real profile goes live. Remove the badge from demo data now. Lawyer sign-off: REQUIRED for the wording and the verification procedure.
 
-### LEG-07 · high · Product name 'NyayaSetu' is the name of the Government of India's own legal-aid AI chatbot
+### LEG-07 · fixed · Product name 'NyayaSetu' is the name of the Government of India's own legal-aid AI chatbot
 
 - **Where:** `lib/constants.ts:1`
 - **Effort:** M
@@ -315,27 +316,27 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Impact:** Verified by web search (Angel One, Digit, Outlook Business, Outlook Money coverage): 'Nyaya Setu' is a Ministry of Law and Justice / Department of Justice legal-assistance service launched in August 2024 and offered as a free AI chatbot on WhatsApp under the Tele-Law umbrella from January 2026. A private AI legal assistant with the same name, in the same category, aimed at the same citizens, will be taken for the government service. That invites a trade mark refusal or opposition (Trade Marks Act ss.9 and 11), a misleading-representation complaint under the Consumer Protection Act 2019, possible issues under the Emblems and Names (Prevention of Improper Use) Act 1950 s.3 (names suggesting government patronage, from my own knowledge), and app-store impersonation takedowns. It also undermines the 'not official, not a lawyer' positioning.
 - **Fix:** Run a trade mark and name clearance (Class 9, 42 and 45 searches, domain, app stores) and choose a distinct brand before any public launch or filing. In code, make APP_NAME the single source of truth: replace the hard-coded strings in Display.tsx:136, app/(auth)/layout.tsx:13, components/marketing/Chrome.tsx:53 and the fixtures. Add a line to the footer and onboarding: 'Private service. Not affiliated with any government department, NALSA or the courts.' Lawyer sign-off: REQUIRED (IP counsel).
 
-### LEG-08 · high · Persistent 'not a lawyer' disclaimer is hidden on mobile and is 11px on desktop; the long disclaimer is never used
+### LEG-08 · fixed · Persistent 'not a lawyer' disclaimer is hidden on mobile and is 11px on desktop; the long disclaimer is never used
 
 - **Where:** `components/layout/CitizenShell.tsx:83`
 - **Effort:** S
-- **Status:** Reproduced first-hand
+- **Status:** Fixed in Phase 0: the line is shown on phones, and a notice sits above every explanation. Checked in the running app.
 - **Impact:** The landing page says most people will open a notice on a phone, and on a phone the citizen shell shows no disclaimer at all. The dashboard, case list, case analysis ('In simple words', 'Please notice', 'Do this next'), documents, lawyers and messages screens all render AI or analysis output with no 'not a lawyer / not legal advice' text on mobile. On desktop it is an 11px grey footer line. Only advocates may practise law (Advocates Act ss.29, 33; penalty in s.45, from my own knowledge), so for a non-advocate company the disclaimer and information-only framing are the main defence against an unauthorised-practice allegation and against reliance claims by users.
 - **Fix:** In CitizenShell.tsx remove the `hidden md:block` wrapper and render the disclaimer on all breakpoints (for example a slim bar under the mobile header, above the fixed bottom nav so it is not covered), at 13px or larger. Add a block-level notice component at the top of the analysis tabs in app/(citizen)/cases/[caseId]/page.tsx and in AskAiPanel. Show DISCLAIMER_LONG once at onboarding with a recorded acknowledgement and link it to a /disclaimer page. Lawyer sign-off: REQUIRED on the final wording.
 
-### LEG-09 · high · Analysis page drops the 'unverified' flag, official sources, deadline caveats and questions-for-advocate, and can hide the most serious risk
+### LEG-09 · fixed · Analysis page drops the 'unverified' flag, official sources, deadline caveats and questions-for-advocate, and can hide the most serious risk
 
 - **Where:** `app/(citizen)/cases/[caseId]/page.tsx:200`
 - **Effort:** M
-- **Status:** Confirmed by a second reviewer
+- **Status:** Fixed with the multilingual work: the "not checked" label, official sources, date notes and questions for an advocate are all shown.
 - **Impact:** The spec's legal-integrity rule requires legal information to be 'demo-labeled, not presented as verified law' and sources to be shown (docs/PHASE1_IMPLEMENTATION_PLAN.md:84-85, :90). In the UI the legal-information cards look like plain statements of law; the NALSA, eCourts and consumer links attached to each analysis are invisible; the note 'Not a legal deadline' is dropped; there is no Demo badge on the case; and the prepared questions for an advocate, the safest and most useful output, are not shown. In production this means unverified model output displayed without provenance, and a serious risk can sit unseen behind a milder one.
 - **Fix:** In cases/[caseId]/page.tsx: (1) render a provenance chip on every legal-information card from `item.verification`; (2) add a 'Where to check' section listing `analysis.sources` with `note`; (3) render `d.note` under each date; (4) choose the 'Please notice' item by severity (serious first) and show all risks in the plan tab; (5) add a 'Questions to ask an advocate' section; (6) show a case-level badge from `record.isDemo` or the real provenance. Lawyer sign-off: recommended for the provenance wording.
 
-### LEG-12 · high · An invented, non-legal 'Urgent' date is surfaced on the dashboard as 'A date is coming', and past dates are still shown as upcoming
+### LEG-12 · fixed · An invented, non-legal 'Urgent' date is surfaced on the dashboard as 'A date is coming', and past dates are still shown as upcoming
 
 - **Where:** `data/mocks/analyses.ts:102`
 - **Effort:** M
-- **Status:** Reproduced first-hand
+- **Status:** Fixed in Phase 0: the invented date is removed and passed dates are never announced.
 - **Impact:** With the seeded data the home-screen banner reads 'A date is coming: Suggested: send a written acknowledgement (demo prompt), 22 Aug 2026', which is a date the system made up, labelled Urgent, with its 'Not a legal deadline' note never rendered. Advising a tenant to send a written acknowledgement of a vacate notice is itself contestable (it can be used as proof of service or as an admission), and the same fixture's own question for an advocate asks what to avoid saying. Because urgency is static and nothing checks the calendar, dates that have already passed are still announced as 'coming'. Wrong or invented deadlines are the single most harmful error a legal tool can make.
 - **Fix:** Split the model: `deadlines` may contain only dates found in the document, each with `sourceExcerpt` and `kind: "stated_in_document"`; move system suggestions to a separate undated `suggestions` list that never feeds the dashboard. Compute urgency at render time from the date with `daysUntil` and show overdue items as 'This date has passed, speak to an advocate or legal aid now'. Remove the acknowledgement suggestion from the tenancy fixture. Label every date 'as written in your paper; confirm on the original'. Lawyer sign-off: REQUIRED for any wording about replying to notices.
 
@@ -363,11 +364,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Impact:** Someone who has received a police notice, whose relative has been arrested, or who is facing violence at home is on a clock measured in hours. The intake treats them like a warranty dispute: no immediate pointer to free legal aid (which is a right for anyone in custody and for women and children under Legal Services Authorities Act s.12), no emergency number, and a multi-step form before any help appears. For a 'citizen-first' product this is the highest-harm content gap, and delay caused by the app is the kind of reliance harm a disclaimer does not cure.
 - **Fix:** Add a triage step at the start of cases/new: 'Is anyone in danger, arrested, or called by the police today?' If yes, show an interstitial with 112 (emergency), NALSA 15100 (free legal aid), 181 (women), 1098 (children), 1930 (cyber fraud) and the district legal services authority, before any form. For `criminal_complaint` and `family` categories, pin a category banner on the analysis page and block the model from procedural advice beyond 'contact legal aid now'. Maintain the helpline list as reviewed content with a last-checked date. Lawyer sign-off: REQUIRED on triage wording and numbers.
 
-### LEG-28 · high · English-only product for a citizen-first India launch; language is hard-typed to 'en' and the font cannot render Indian scripts
+### LEG-28 · fixed · English-only product for a citizen-first India launch; language is hard-typed to 'en' and the font cannot render Indian scripts
 
 - **Where:** `domain/user.ts:9`
 - **Effort:** L
-- **Status:** Adjusted by a second reviewer: preferredLanguage: "en" (domain/user.ts:9), lang="en" and inline English strings are confirmed, and DPDP ss.5(3) and 6(3) do require notice and consent requests to be available in English or a Eighth Schedule language. One claim is wrong: the Inter latin subset does not stop Indian scripts rendering, because the browser falls back to system fonts; the gap is translation and string extraction, not the font.
+- **Status:** Fixed with the multilingual work: Marathi (default), Hindi and English, with a font for Devanagari. Reviewed by a second native-language pass; a human read-through is still advised before launch.
 - **Impact:** Most intended users do not read English well enough to act on a legal explanation, so the core promise ('everyday language') fails for them. It is also a compliance point: DPDP ss.5(3) and 6(3) (from my own knowledge, counsel to confirm) require the privacy notice and consent request to be available in English or any of the 22 Eighth Schedule languages at the user's option. The government's own free alternatives (Tele-Law, eCourts, NALSA) are multilingual. Retrofitting translation into inline strings later is far more expensive than extracting them now.
 - **Fix:** Adopt next-intl (already named in the spec at :585): move all strings into message catalogues, widen `preferredLanguage` to a language union, set `lang` on `<html>` from the active locale, and load Noto Sans fonts for Devanagari and the launch scripts. Launch with Hindi plus one or two regional languages; translate the notice, consent, disclaimer and helpline content first and have each translation checked by a native-speaking advocate. Tell the model to answer in the user's language and keep legal terms with a plain gloss. Lawyer sign-off: REQUIRED for translated legal notices and disclaimers.
 
@@ -375,21 +376,21 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `app/(citizen)/messages/page.tsx:109`
 - **Effort:** M
-- **Status:** Adjusted by a second reviewer: All quoted lines are accurate (messages/page.tsx:109,170 Online; :193-194 mislabelled links; lawyerChats.ts:13,42) and the thread view has no Demo badge. But every new reply is a fixed string saying it is a demo and not a real lawyer (services/mock/lawyerChat.ts:5-6), so the Rule 36, privilege and IT Rules exposure is hypothetical until real advocates exist; today this is a misleading-mock-UI problem that overlaps LEG-01, LEG-03 and LEG-31.
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** For launch without a cleared marketplace model: remove /messages, the seeded DEMO_LAWYER_THREADS, the 'Online' label, the phone/video icons and the Schedule Call and Payments tiles; make 'Talk' open a sheet that shows the advocate's own contact details for user-initiated contact outside the platform, plus legal-aid options. If in-app messaging is kept later: user-initiated only, no advocate-first messages, explicit per-advocate consent before any document is shared, a visible notice of who can read the thread, encryption and a retention limit. Lawyer sign-off: REQUIRED.
 
 ### LEG-05 · medium · Consultation fees are displayed, used as a ranking factor and tied to a planned payment flow, with no fee-sharing, e-commerce or payment-aggregator design
 
 - **Where:** `components/lawyers/LawyerCard.tsx:61`
 - **Effort:** L
-- **Status:** Adjusted by a second reviewer: Fee display (LawyerCard.tsx:61-62) and the +4 ranking bonus (lawyerMatch.ts:55-57) are real, and the RBI Payment Aggregator Master Direction of 15 Sept 2025 is confirmed. The payment-flow half rests only on the removed plan document and a "Payments" link that goes to /settings; no payment code exists, so the fee-sharing, e-commerce and aggregator points are design requirements for a later phase, not present defects.
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** Remove fee display and the fee term from lawyerMatch.ts. Decide the revenue model with counsel before building payments: the lowest-risk option is a flat subscription or one-off charge paid by the citizen for the platform's own document-explanation service, with no commission, lead fee or referral fee tied to advocates. If advocate payments are ever facilitated, use an RBI-authorised payment aggregator with split settlement direct to the advocate, never pooled in the company account, and publish pricing, refund/cancellation terms and the grievance officer. Lawyer sign-off: REQUIRED (BCI fee-sharing, E-Commerce Rules, RBI, GST).
 
 ### LEG-06 · medium · Fictional advocates use common real-world names and cities and carry invented ratings and caseloads
 
 - **Where:** `data/mocks/lawyers.ts:6`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** Do not ship seed advocates in a production build. Gate DEMO_LAWYERS behind a demo-mode flag in services/index.ts. For the demo, use obviously synthetic names ('Sample Advocate A') with no ratings, fees or caseloads, and render the 'not a real advocate' line prominently on the card and profile header. Lawyer sign-off: not required for removal; recommended if any placeholder profiles remain public.
 
 ### LEG-10 · medium · Per-message 'not a lawyer' text lives inside mock reply strings, not the chat UI, so it disappears when a real model is connected
@@ -441,18 +442,18 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Add a short security and privacy section to the launch plan and repo docs covering: named owner and published contact; incident runbook with the 6-hour CERT-In and 72-hour Board clocks and user-notice templates; encryption in transit and at rest; role-based access with audit logs; log retention; processor breach-notice clauses; a tabletop test before launch. Wire a `security@` and `grievance@` contact into the footer and the /grievance page. Lawyer sign-off: REQUIRED on notification templates and thresholds.
 
-### LEG-23 · medium · Legal-aid page has two generic links and no helpline numbers, eligibility information or state and district routes
+### LEG-23 · fixed · Legal-aid page has two generic links and no helpline numbers, eligibility information or state and district routes
 
 - **Where:** `app/(citizen)/legal-aid/page.tsx:22`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: tap-to-call helplines, including Maharashtra's, confirmed against official pages on 9 October 2026.
 - **Fix:** Rebuild the page as reviewed content: NALSA helpline 15100 with a tap-to-call link; the online application link; a state selector that deep-links to the State Legal Services Authority site; Tele-Law 14454; Nyaya Bandhu; a plain-language 'Who gets free legal aid' list from s.12 with a note that income limits differ by state; emergency numbers. Add `target`/`rel` and an 'official website' label on external links. Store each entry with source URL and last-verified date and re-check quarterly. Lawyer sign-off: REQUIRED on the eligibility summary.
 
-### LEG-26 · medium · Showcase analyses state 'facts' that are not in the document or the user's notes, and contain small legal and date inconsistencies
+### LEG-26 · fixed · Showcase analyses state 'facts' that are not in the document or the user's notes, and contain small legal and date inconsistencies
 
 - **Where:** `data/mocks/analyses.ts:207`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: the samples were rewritten so each fact is in the paper or the story, and moved to Maharashtra.
 - **Fix:** Correct the fixtures so every key fact and clause maps to text in the SVG or the description: add a description record for case-consumer or remove the 'your notes' sentences; remove or add the inspection and registration lines to the SVG; rename the warranty item 'Warranty end date worked out from the purchase date (check your card)'; reword the employment facts to 'July unpaid; August not yet received'. Add `sourceExcerpt` to key facts and a unit test asserting each excerpt appears in the source. Lawyer sign-off: recommended on the corrected samples.
 
 ### LEG-27 · medium · Data model cannot represent verified legal content, and the LLM plan has no statute-currency or jurisdiction guardrail
@@ -466,7 +467,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `components/ui/Button.tsx:17`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Partly done: text colours now meet 4.5:1, dialogs keep focus, tabs and the form work with a screen reader. A full audit and a statement are still needed.
 - **Fix:** Commission a WCAG 2.1 AA / IS 17802 audit with screen-reader testing (TalkBack is the priority). Darken `--color-ai` and `--color-warning` to meet 4.5:1 on their backgrounds, raise legal and status text to at least 12-13px, add focus trapping to Sheet.tsx and tabpanel wiring to Tabs. Publish /accessibility with a contact route. Add read-aloud for explanations as a product feature. Lawyer sign-off: recommended on the accessibility statement.
 
 ### LEG-30 · medium · 'ID papers' category and bank-statement prompts invite Aadhaar, PAN and financial records with no redaction or special handling
@@ -480,21 +481,21 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `data/mocks/lawyers.ts:83`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** Remove `availability` from the profile card and the 'Availability' tab, delete the hard-coded 'Online' labels, and do not seed unread counts. If availability is ever shown, it must come from real data and be neutral ('Usually replies within 2 working days', computed). Add a short design rule to the repo: no urgency, scarcity or social-proof cues anywhere near advocates or payments. Lawyer sign-off: recommended.
 
-### LEG-32 · medium · Landing page makes absolute promises the product cannot keep ('nothing hides in a paragraph', 'Official help links stay visible')
+### LEG-32 · fixed · Landing page makes absolute promises the product cannot keep ('nothing hides in a paragraph', 'Official help links stay visible')
 
 - **Where:** `app/(marketing)/page.tsx:72`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: the absolute promises are gone from the landing page.
 - **Fix:** Rewrite to accurate, bounded claims: 'We pull out the dates and duties we can find so they are easier to see. We can miss things, so always read the original.' Either make the second claim true (persistent 'Free legal aid: 15100' link in the citizen header and bottom nav) or remove it. Add a 'What we can get wrong' item to the 'Trust, and limits' section. Lawyer sign-off: REQUIRED on marketing claims before launch.
 
 ### LEG-M01 · medium · The new name "Juris" has had no trade mark or name clearance and is a weak, descriptive mark for a legal product
 
 - **Where:** `lib/constants.ts:1`
 - **Effort:** S
-- **Status:** Added by the second reviewer
+- **Status:** Open, and yours to decide: see decision 2 in the launch plan.
 - **Fix:** Before any public use, run a search of the IP India register in classes 9, 42 and 45 and check domain and app-store availability; if "Juris" is kept, pair it with a distinctive element (word or logo) and file the application. Because the name is centralised in APP_NAME this is a one-line change if a new name is needed.
 
 ### LEG-24 · low · Resources page omits the current consumer-filing portal and other official routes; one description is too narrow
@@ -504,18 +505,18 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Add entries for e-Jagriti (consumer commission filing), the 1915 helpline number, the National Cyber Crime Reporting Portal with 1930, Tele-Law and the user's State Legal Services Authority. Change the India Code text to 'Central and State Acts and rules'. Keep the list in a typed content file with `lastVerified` per entry rather than inline in the page. Lawyer sign-off: recommended.
 
-### LEG-25 · low · Karnataka State Legal Services Authority source is labelled as such but links to the NALSA home page
+### LEG-25 · fixed · Karnataka State Legal Services Authority source is labelled as such but links to the NALSA home page
 
 - **Where:** `data/mocks/analyses.ts:153`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: the link now goes to the Maharashtra State Legal Services Authority.
 - **Fix:** Change the URL to https://karnataka.nalsa.gov.in/ and shorten the label to 'Karnataka State Legal Services Authority'. Add a small link-check script or test that requests every `SourceItem.url` and fails on non-200 or on a host that does not match an allow-list of official domains. Lawyer sign-off: not required.
 
-### LEG-M02 · low · A user's legal question can be carried in the page URL
+### LEG-M02 · fixed · A user's legal question can be carried in the page URL
 
 - **Where:** `app/(citizen)/assistant/page.tsx:35`
 - **Effort:** S
-- **Status:** Added by the second reviewer
+- **Status:** Fixed in Phase 0: questions are no longer carried in the address.
 - **Fix:** Remove the q parameter, or pass a short id for a fixed list of preset questions instead of free text, and clear the parameter from the address bar with router.replace after it is read.
 
 ## Functional correctness
@@ -530,11 +531,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Impact:** Every sign-in and sign-up resolves to the same user id, and cases, documents, descriptions, AI chats and lawyer threads sit in one un-partitioned localStorage key. Sign-out only nulls `user`. Signing out and signing in or up with a different email shows the previous person's cases, narratives, AI chat history, lawyer messages and saved lawyers (lib/bookmarks.ts uses a global key too). On a shared family phone or cyber-cafe PC this exposes sensitive legal data. No repository method checks ownership (getById, getByCaseId, chat list/send, listThreads take no user).
 - **Fix:** Issue unique user ids from real auth and store data server-side keyed by the authenticated uid, with ownership checks in every repository method. Interim for the mock: derive the id from the normalised email in demoUserFromName, namespace STORAGE_KEY and the bookmarks key by user id, add citizenId to chats and lawyerThreads, and make signOut remove both keys.
 
-### COR-02 · high · Sign-in overwrites the user's name with "Meera Iyer"
+### COR-02 · fixed · Sign-in overwrites the user's name with "Meera Iyer"
 
 - **Where:** `app/(auth)/sign-in/page.tsx:27`
 - **Effort:** S
-- **Status:** Confirmed by a second reviewer
+- **Status:** Fixed in Phase 0: sign-in no longer overwrites the person's name.
 - **Impact:** A user who signed up as e.g. "Ravi Kumar", signs out and signs back in is greeted "Good morning, Meera!"; Settings shows "Meera Iyer" beside their own email. The same happens for any different email. services/mock/auth.ts:17-20 also defaults to "Meera Iyer", and the email field is prefilled with the demo address (line 18).
 - **Fix:** Remove the hard-coded displayName and the prefilled email. In signIn, look up the existing profile by email and reuse its displayName; never default to the demo persona. With real auth, the display name comes from the user record.
 
@@ -542,23 +543,23 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `components/ui/FileDropzone.tsx:28`
 - **Effort:** L
-- **Status:** Confirmed by a second reviewer
+- **Status:** Partly done: the dead preview link is no longer stored. The file itself is still not kept; that needs real storage (Phase 2).
 - **Impact:** classify() keeps only name/size/type; the File bytes are dropped (CreateCaseInput.document has no content field). The blob: URL is written to localStorage by services/mock/cases.ts:50 (`previewUrl: input.document.previewUrl,`) and rendered at app/(citizen)/cases/[caseId]/page.tsx:119. After any reload or new tab it is a broken image; PDFs never have a preview. Object URLs are never revoked on Remove (line 115), replace or unmount. Meanwhile app/(citizen)/documents/page.tsx:36 says "Files stored in this browser for the prototype." The user's paper is silently gone and cannot be opened from "My Documents".
 - **Fix:** Carry the File through LocalFile -> CreateCaseInput and upload it to real storage (signed URL), storing a storage key rather than a URL. Never persist blob: URLs: keep them in component state and revoke them in the Remove handler and an unmount cleanup. Interim: store the bytes in IndexedDB keyed by document id and create object URLs on demand. Correct the Documents subtitle until files are really stored.
 
-### COR-04 · high · Dashboard "A date is coming" banner shows past deadlines and pins the oldest one forever
+### COR-04 · fixed · Dashboard "A date is coming" banner shows past deadlines and pins the oldest one forever
 
 - **Where:** `app/(citizen)/dashboard/page.tsx:38`
 - **Effort:** S
-- **Status:** Reproduced first-hand
+- **Status:** Fixed in Phase 0: only dates that have not passed are announced. Checked in the running app.
 - **Impact:** Selection uses the stored urgency string and never compares the date with today; line 43 then sorts ascending and takes the first. With the seed data the banner permanently reads "A date is coming ... 22 Aug 2026" (today is 8 Oct 2026). That entry's own note says "Not a legal deadline" (data/mocks/analyses.ts:105). An expired date also masks any genuinely upcoming one (e.g. the 2027-03-03 warranty end). For real cases a missed deadline would keep being announced as upcoming while the next real one is hidden.
 - **Fix:** In the dashboard effect, compute daysUntil(d.date) (already in lib/format.ts:82, currently unused), keep only items with days >= 0, sort by days and show the nearest. Render overdue items as a separate "This date has passed" warning. Add a `kind: "legal" | "suggested"` field to DeadlineItem and exclude suggestions from the banner.
 
-### COR-05 · high · Deadline urgency is a static stored string, never computed from the date
+### COR-05 · fixed · Deadline urgency is a static stored string, never computed from the date
 
 - **Where:** `app/(citizen)/cases/[caseId]/page.tsx:235`
 - **Effort:** S
-- **Status:** Confirmed by a second reviewer
+- **Status:** Fixed in Phase 0: urgency is worked out from the date each time.
 - **Impact:** The "What to do" tab shows "Soon" for 27 Aug 2026 and "Urgent" for 22 Aug 2026, both in the past. Urgency frozen at analysis time goes stale every day the case stays open. The list is in array order, not date order (27 Aug before 22 Aug), and DeadlineItem.note (the "Not a legal deadline" / "Confirm the real date" caveats) is never rendered. The spec asks for a pure `deadlineUrgency(date)` (docs/PHASE1_IMPLEMENTATION_PLAN.md:181) and text like "Due in 3 days" (line 263); neither exists.
 - **Fix:** Add `deadlineUrgency(date, now)` to domain/analysis.ts returning overdue/urgent/soon/upcoming/none from daysUntil, and use it on the case page and dashboard instead of d.urgency. Show relative text ("Due in 3 days" / "Passed 47 days ago"), sort by date, render d.note under each item. Treat the stored urgency only as a fallback when no date exists.
 
@@ -566,51 +567,51 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `app/(citizen)/messages/page.tsx:162`
 - **Effort:** S
-- **Status:** Reproduced first-hand
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Impact:** Lines 42-43 auto-select the first thread on load, and line 121 hides the list below md whenever a thread is active (`${activeId && threads.length ? "hidden md:block" : "block"}`). The mobile Back arrow sets activeId to the first thread again, so it is a no-op in thread 1 and jumps to thread 1 from any other. A phone user can never see the conversation list or open the second seeded thread (adv-menon, 1 unread) except by going through Find a person -> Talk.
 - **Fix:** Model the mobile list/detail view explicitly: do not auto-select a thread below md (auto-select only when `requested` is present or on desktop), make Back call setActiveId(null) and router.replace('/messages'), render the list when activeId is null, and move the "No conversations yet" empty state to depend on threads.length === 0 rather than !activeId.
 
-### COR-07 · high · "Ask a question" silently attaches the chat to the most recently updated case
+### COR-07 · fixed · "Ask a question" silently attaches the chat to the most recently updated case
 
 - **Where:** `app/(citizen)/assistant/page.tsx:25`
 - **Effort:** M
-- **Status:** Confirmed by a second reviewer
+- **Status:** Fixed with the multilingual work: the assistant shows which problem it is about and lets the person choose.
 - **Impact:** The dashboard card and the "Ask" nav item open /assistant with no caseId, so the panel binds to cases[0] (sorted by updatedAt). Nothing on the page names that case and there is no picker. A general question is answered from an unrelated case's analysis (with the seeds, the unpaid-salary case). When a new case is created the assistant's visible history switches to a different thread. With a real model this grounds answers in the wrong facts, unlabelled. An unknown ?caseId= is also accepted and chat is stored under a garbage key.
 - **Fix:** Add a required case selector (or an explicit general, case-less thread in ChatService) and show the bound case title in the AskAiPanel header. Validate ?caseId= with caseRepository.getById and show an error state if it is missing or not owned by the user. Never fall back to cases[0] implicitly.
 
-### COR-08 · medium · ?q= seed question auto-sends on every mount (duplicates on reload, double-send in StrictMode)
+### COR-08 · fixed · ?q= seed question auto-sends on every mount (duplicates on reload, double-send in StrictMode)
 
 - **Where:** `components/assistant/AskAiPanel.tsx:28`
 - **Effort:** S
-- **Status:** Reproduced first-hand
+- **Status:** Fixed in Phase 0: nothing is sent on page load.
 - **Fix:** Do not auto-submit: prefill the input (`setText(seedQuestion)`) and let the user press Send. If auto-send is wanted, guard with a ref and strip `q` via router.replace after first use. Generate ids with crypto.randomUUID().
 
-### COR-09 · medium · Unvalidated `next` parameter is pushed after sign-in (open redirect)
+### COR-09 · fixed · Unvalidated `next` parameter is pushed after sign-in (open redirect)
 
 - **Where:** `app/(auth)/sign-in/page.tsx:16`
 - **Effort:** S
-- **Status:** Reproduced first-hand
+- **Status:** Fixed in Phase 0: only same-site paths are followed after sign-in.
 - **Fix:** Accept only same-origin relative paths: require next to start with a single "/", reject "//" and backslashes, parse with `new URL(next, location.origin)` and compare origin, optionally allowlist the protected prefixes from middleware.ts. Fall back to /dashboard.
 
-### COR-10 · medium · Auth redirects lose the deep link: middleware drops the query string, sign-up and the logged-in redirect ignore `next`
+### COR-10 · fixed · Auth redirects lose the deep link: middleware drops the query string, sign-up and the logged-in redirect ignore `next`
 
 - **Where:** `middleware.ts:28`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: the destination survives the redirect, sign-up and the signed-in shortcut.
 - **Fix:** In middleware build next as `pathname + request.nextUrl.search` and clear the other params (`url.search = ""` before setting next). Honour a validated next in the logged-in branch. Read and forward next in sign-up and in the sign-in/sign-up cross links.
 
-### COR-11 · medium · Session is split between a JS cookie and localStorage; getSession fabricates "Meera" and writes it when they disagree
+### COR-11 · fixed · Session is split between a JS cookie and localStorage; getSession fabricates "Meera" and writes it when they disagree
 
 - **Where:** `services/mock/auth.ts:53`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: a session needs both halves; nothing is invented when they disagree.
 - **Fix:** Use a single source of truth: an HttpOnly server-set session cookie verified in middleware, with getSession calling a /api/session endpoint. For the mock: when store.user is null and a cookie exists, clear the cookie and return null; make getSession read-only; anchor the regex with `(?:^|; )`.
 
-### COR-13 · medium · localStorage writes are unguarded: quota or disabled storage throws out of every service call
+### COR-13 · fixed · localStorage writes are unguarded: quota or disabled storage throws out of every service call
 
 - **Where:** `services/mock/store.ts:70`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: storage writes are guarded; the session carries on from memory if storage is full or blocked.
 - **Fix:** Wrap setItem in try/catch in saveStore and toggleBookmark and return a ServiceResult with code "unavailable" (defined in domain/result.ts:3, never produced) so pages can show "Could not save on this device". Make loadStore fall back to `memory` when storage is unusable. Put setReady(true) in a finally in SessionProvider.refresh.
 
 ### COR-14 · medium · loadStore trusts an unvalidated cast with no schema version; any parse or shape error silently replaces all user data with the seed
@@ -634,53 +635,53 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Use try/catch/finally in every submit handler with setPending(false) in finally and a visible error. Make the service layer convert thrown errors into `{ ok: false, code: "unavailable" }`. Add `.catch` to the effect loaders and render error states with a Retry button.
 
-### COR-17 · medium · Wizard field "What would a good ending look like?" is saved into `whatHappened`
+### COR-17 · fixed · Wizard field "What would a good ending look like?" is saved into `whatHappened`
 
 - **Where:** `app/(citizen)/cases/new/page.tsx:193`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: the wanted outcome is saved under its own field.
 - **Fix:** Rename the state to `outcomeWanted` and send `whatOutcomeWanted: outcomeWanted.trim() || undefined`. Add the other guided prompts from the spec (when / who / where), show them on the Review step and on the case page.
 
-### COR-18 · medium · Switching intake mode keeps the previously chosen file; a "description" case is created with a document attached
+### COR-18 · fixed · Switching intake mode keeps the previously chosen file; a "description" case is created with a document attached
 
 - **Where:** `app/(citizen)/cases/new/page.tsx:93`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: a story-only problem no longer carries a stray file.
 - **Fix:** Gate on mode: `document: mode !== "description" && file ? file : undefined`, apply the same condition on the Review card, and clear file/narrative (revoking the object URL) when the mode changes on step 0.
 
-### COR-19 · medium · Wizard progress and input live only in component state: browser or Android Back discards everything, and there is no draft
+### COR-19 · fixed · Wizard progress and input live only in component state: browser or Android Back discards everything, and there is no draft
 
 - **Where:** `app/(citizen)/cases/new/page.tsx:30`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: what is typed in the new-problem form survives a reload, a language change and the Back button.
 - **Fix:** Put the step in the URL (?step=details, push on Next so Back steps backwards), persist the form to sessionStorage or a real draft record on change, and add a beforeunload / route-change confirm when the form is dirty.
 
-### COR-22 · medium · FileDropzone type check passes files with an empty MIME type or a mismatched extension; same file cannot be re-selected after Remove
+### COR-22 · fixed · FileDropzone type check passes files with an empty MIME type or a mismatched extension; same file cannot be re-selected after Remove
 
 - **Where:** `components/ui/FileDropzone.tsx:53`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: the file type and name must both look right, and the same file can be chosen again.
 - **Fix:** Use one allowlist of {mime, extension} pairs and require a match on the extension AND (an allowed MIME or an empty one). Reject size 0. Drop HEIC or convert it. Set `e.target.value = ""` after each selection. Call onChange(null) when validation fails. Re-validate type and size on the server when uploads become real.
 
-### COR-23 · medium · Case page shows an infinite skeleton when the case exists but its analysis is missing or failed
+### COR-23 · fixed · Case page shows an infinite skeleton when the case exists but its analysis is missing or failed
 
 - **Where:** `app/(citizen)/cases/[caseId]/page.tsx:64`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: a missing explanation shows a message with a way back.
 - **Fix:** Order the branches: if record.status === "processing" redirect to /cases/[id]/processing; if error, render an Alert with the real message, Retry and a back link; only then show the skeleton. Reset record/analysis/error at the start of the effect.
 
-### COR-24 · medium · Half of the analysis model is never rendered, including sections the spec says must exist
+### COR-24 · fixed · Half of the analysis model is never rendered, including sections the spec says must exist
 
 - **Where:** `app/(citizen)/cases/[caseId]/page.tsx:200`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: every section of the explanation is shown.
 - **Fix:** Add ClausesList, ObligationsList (using the unused ACTOR_LABEL), RisksList (all risks, serious first), SourcesList (external links with rel=noopener) and QuestionsForLawyer components to the overview and plan tabs. Render the verification badge on every legal-information card, show deadline notes, and replace the silent slices with expanders.
 
-### COR-25 · medium · "Please notice" shows risks[0] rather than the most serious risk; the deadline fallback is effectively dead
+### COR-25 · fixed · "Please notice" shows risks[0] rather than the most serious risk; the deadline fallback is effectively dead
 
 - **Where:** `app/(citizen)/cases/[caseId]/page.tsx:108`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: all warnings are shown, the most serious first.
 - **Fix:** Choose the item explicitly: first risk with severity "serious", otherwise the nearest non-overdue deadline from the computed urgency in COR-05, otherwise the first "attention" risk. Show both a risk and a deadline when both exist.
 
 ### COR-26 · medium · Case lifecycle dead ends: processing always ends in "ready"; "Needs you" cannot be resolved; no edit, add-document or delete
@@ -694,35 +695,35 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `lib/lawyerMatch.ts:46`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** Either remove the percentage and "Why this person?" and show plain factual filters, or score only on known facts: start at 0, add language points only when the user's stated preference is supplied, treat fee <= cap including 0, weight same-state heavily, add a tie-breaker, and show no score when there is no case context. Add unit tests for matchLawyer.
 
 ### COR-30 · medium · The same lawyer shows different match scores on different pages, and the list page feeds the user's own filters back in as context
 
 - **Where:** `app/(citizen)/lawyers/[lawyerId]/page.tsx:60`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** Carry the case context in the URL (`/lawyers?caseId=…`, `/lawyers/[id]?caseId=…`) from the case page's "Get help" tab and LawyerCard links, compute the score from that context everywhere via one hook (useLawyerMatch), and hide the score when no case context exists. Never derive context from filter controls.
 
 ### COR-33 · medium · /messages?lawyerId= accepts any id and will create and persist a thread for a lawyer that does not exist
 
 - **Where:** `app/(citizen)/messages/page.tsx:31`
 - **Effort:** S
-- **Status:** Reproduced first-hand
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** Resolve `requested` with lawyerRepository.getById before activating it and show a "Profile not found" state otherwise. Make send() return not_found for unknown lawyers. Show an explicit "Start a conversation with <name>" confirmation before the first message.
 
 ### COR-34 · medium · Messages: draft text and message list are shared across threads and async loads are not cancelled
 
 - **Where:** `app/(citizen)/messages/page.tsx:48`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** Key drafts by lawyerId (`Record<string,string>`) or key the conversation subtree with `key={activeId}`. Clear messages on switch, add a `cancelled` flag or AbortController to the effect, and in send() ignore the result if the active thread changed.
 
 ### COR-36 · medium · Messages screen shows presence, call, scheduling and payment affordances that do nothing or go somewhere unrelated
 
 - **Where:** `app/(citizen)/messages/page.tsx:193`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** Remove the presence text, the call/video icons and the Schedule/Payments shortcuts until those features exist, or render them as disabled with "Coming later". Keep a persistent banner in the thread that messages are not delivered to a real advocate.
 
 ### COR-38 · medium · No error boundary anywhere: any render-time exception produces Next's blank "Application error" screen
@@ -739,25 +740,25 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Introduce one data hook layer (TanStack Query or SWR, or a small useAsync with AbortController) keyed by user/case/lawyer id, giving cancellation, dedupe, error and retry. Add batch endpoints (documents by user, next deadline per user) to remove the N+1 patterns.
 
-### COR-M01 · medium · Session cookie expires after 14 days and is never renewed, while the localStorage account persists
+### COR-M01 · fixed · Session cookie expires after 14 days and is never renewed, while the localStorage account persists
 
 - **Where:** `services/mock/auth.ts:7`
 - **Effort:** S
-- **Status:** Added by the second reviewer
+- **Status:** Fixed in Phase 0: when the session cookie runs out, what was stored is removed too.
 - **Fix:** Renew the cookie on each successful getSession (sliding expiry), and in the real build move to a server-set HttpOnly session cookie with the server as the single source of truth.
 
-### COR-12 · low · Session context is never re-synced: signOut does not refresh it and there is no cross-tab handling
+### COR-12 · fixed · Session context is never re-synced: signOut does not refresh it and there is no cross-tab handling
 
 - **Where:** `app/(citizen)/settings/page.tsx:25`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: sign-out reloads the page.
 - **Fix:** Call `await refresh()` in signOut before navigating. In SessionProvider add `storage` and `visibilitychange` listeners that call refresh(), and redirect to /sign-in from CitizenShell when `ready && !user`. Wrap refresh in useCallback and include it in the memo deps.
 
-### COR-20 · low · ?mode= deep link is applied in an effect after first paint
+### COR-20 · fixed · ?mode= deep link is applied in an effect after first paint
 
 - **Where:** `app/(citizen)/cases/new/page.tsx:43`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: the starting step comes from the address at first render.
 - **Fix:** Initialise lazily from the URL: `useState(() => parseMode(search.get("mode")) ?? "both")` and `useState(() => (parseMode(...) ? 1 : 0))`, and remove the effect.
 
 ### COR-21 · low · Wizard validation holes and an error message that leaks across steps
@@ -767,60 +768,60 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Clear the error in both Back handlers and on field change. Use per-field `error` props on Input/Textarea (already supported in components/ui/Field.tsx). Add a "Choose…" placeholder category that must be changed, trim and length-limit inputs, wrap each step in a <form onSubmit>, and show all entered data on Review.
 
-### COR-27 · low · Processing page keeps animating "In progress" after an error and offers no way out
+### COR-27 · fixed · Processing page keeps animating "In progress" after an error and offers no way out
 
 - **Where:** `app/(citizen)/cases/[caseId]/processing/page.tsx:31`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: progress stops on failure and offers a way back.
 - **Fix:** On error clear the timers and render a failed state ("Stopped") with Retry and "Back to my problems". Derive the step labels from record.source. Only start processing when the status is "processing".
 
-### COR-28 · low · Case-list status filter uses different words from the badges, offers statuses that cannot occur, and has no error state
+### COR-28 · fixed · Case-list status filter uses different words from the badges, offers statuses that cannot occur, and has no error state
 
 - **Where:** `app/(citizen)/cases/page.tsx:52`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: the filter uses the same words as the badges and only lists states that occur; failures are shown.
 - **Fix:** Keep one status-label map (delete one of CASE_STATUS_LABEL / CASE_STATUS_UI), build the filter options from statuses present in the list, and add error and no-session branches.
 
 ### COR-31 · low · Location matching compares free-text city/state by exact string
 
 - **Where:** `lib/lawyerMatch.ts:18`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** Replace the free-text inputs with a State/UT select and a city/district combobox backed by a canonical list with aliases, store canonical codes on CaseLocation, and compare codes.
 
 ### COR-32 · low · Lawyer filter sheet: "Apply" only closes, there is no reset, and filters are lost on navigation
 
 - **Where:** `app/(citizen)/lawyers/page.tsx:123`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** Keep draft filter state inside the sheet and commit on Apply into URL search params (?city=&area=&lang=). Add "Clear all" in the sheet and the empty state. Pass the filters to lawyerRepository.list(filters) so the real backend can filter.
 
 ### COR-35 · low · Unread badges stay stale after reading and are not surfaced outside the Messages page
 
 - **Where:** `app/(citizen)/messages/page.tsx:53`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** `const r = await lawyerChatService.markRead(activeId); if (r.ok) setThreads(r.data);` with a cancellation guard. Derive unread from per-message read state on the server. Expose a total-unread selector and show it on a Messages nav item.
 
-### COR-37 · low · Chat surfaces: no in-flight guard, swallowed send errors, no scroll-to-latest, suggestion chips wipe the draft
+### COR-37 · fixed · Chat surfaces: no in-flight guard, swallowed send errors, no scroll-to-latest, suggestion chips wipe the draft
 
 - **Where:** `components/assistant/AskAiPanel.tsx:40`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: sending is guarded, failures are shown, and the newest reply is scrolled into view.
 - **Fix:** Add `sending` state that disables ChatInput and the chips; clear `text` only when the sent content equals the input; show the returned error on the Messages page; scroll a bottom sentinel into view when messages change; add loading, error and cancellation to the list effect.
 
-### COR-40 · low · Entity ids are built from Date.now()
+### COR-40 · fixed · Entity ids are built from Date.now()
 
 - **Where:** `services/mock/cases.ts:25`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: ids are random.
 - **Fix:** Use crypto.randomUUID() (or server-generated ULIDs/UUIDs) for cases, documents and messages. Keep createdAt as the separate ordering field.
 
-### COR-41 · low · Date formatting and day arithmetic depend on the device time zone; date-only strings are parsed as UTC
+### COR-41 · fixed · Date formatting and day arithmetic depend on the device time zone; date-only strings are parsed as UTC
 
 - **Where:** `lib/format.ts:1`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: date-only values are treated as calendar days.
 - **Fix:** Pin `timeZone: "Asia/Kolkata"` on both formatters. Parse date-only strings with a parseLocalDate(y, m, d) helper (or use Temporal.PlainDate / date-fns) and compute day differences on plain dates. Add unit tests around midnight IST.
 
 ### COR-42 · low · Seed content is stale and inconsistent: fixed August 2026 dates, a persona name in messages, references to data that does not exist
@@ -851,32 +852,32 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Validate with Array.isArray and filter to strings, wrap the write in try/catch and return the previous state on failure. Add a loading flag and a Remove action on the bookmarks page. Use aria-pressed with labels "Save" / "Remove from saved". Scope bookmarks per user (COR-01).
 
-### COR-46 · low · Sign-up password field is uncontrolled and ignored while its hint says it is stored; sign-in password is optional
+### COR-46 · fixed · Sign-up password field is uncontrolled and ignored while its hint says it is stored; sign-in password is optional
 
 - **Where:** `app/(auth)/sign-up/page.tsx:53`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: the password field is gone.
 - **Fix:** Replace with real authentication. Until then remove the password inputs or mark them "not used in this demo" and correct the hint. Trim and validate the name (minimum one non-space character), add error and pending handling, and distinguish sign-up from sign-in for existing emails.
 
-### COR-47 · low · Forgot-password is a no-op with an unreachable validation branch and a success message that is never cleared
+### COR-47 · fixed · Forgot-password is a no-op with an unreachable validation branch and a success message that is never cleared
 
 - **Where:** `app/(auth)/forgot-password/page.tsx:17`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: the password-reset screen is removed.
 - **Fix:** Implement real reset through the auth provider with a neutral response ("If an account exists, we sent a link"). Clear `message` at the start of submit and on email change, add a pending state and rate limiting, and move validation to one place.
 
-### COR-48 · low · Formatting helpers have crash and edge-case bugs
+### COR-48 · fixed · Formatting helpers have crash and edge-case bugs
 
 - **Where:** `lib/format.ts:44`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: initials handle titles, empty names and Devanagari.
 - **Fix:** Return "U" when parts.length === 0 and take the first grapheme with Array.from or Intl.Segmenter. Fall back to "there" when the trimmed name is empty. Handle negative diffs in formatRelative. If a public case reference is needed, generate and store a unique one on the server.
 
-### COR-49 · low · Dead code and unused exports, including the helpers that would fix the deadline bugs
+### COR-49 · fixed · Dead code and unused exports, including the helpers that would fix the deadline bugs
 
 - **Where:** `lib/format.ts:82`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: unused helpers removed; the deadline helpers are now used.
 - **Fix:** Use daysUntil for COR-04/05 and ACTOR_LABEL/Section for COR-24, then delete what remains unused. Collapse to one status-label map. Derive the middleware matcher and prefix check from one exported constant. Add a knip or ts-prune step to CI.
 
 ### COR-50 · low · Unsafe `as` casts hide type holes at the data boundaries
@@ -886,18 +887,18 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Type it as `Record<MatterCategory, string>`, export `MATTER_CATEGORIES` as a const tuple, and add small `isMatterCategory` / `isCaseStatus` guards for select values instead of casts.
 
-### COR-51 · low · React keys derived from display text in lists that will hold model output
+### COR-51 · fixed · React keys derived from display text in lists that will hold model output
 
 - **Where:** `app/(citizen)/cases/[caseId]/page.tsx:183`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: list keys no longer come from display text.
 - **Fix:** Give keyFacts and questionsForLawyer `{ id, text }` items in the domain model like the other sections, or key by index for these append-only read-only lists. De-duplicate facts in the analysis mapper.
 
-### COR-52 · low · Loading states missing or wrong: Suspense without fallback, "Start a case first" flash, blank Documents page
+### COR-52 · fixed · Loading states missing or wrong: Suspense without fallback, "Start a case first" flash, blank Documents page
 
 - **Where:** `app/(citizen)/assistant/page.tsx:16`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: the assistant and papers screens show a loading state instead of a wrong empty one.
 - **Fix:** Use `null` for not-loaded and render Skeletons. Set ready/error in a finally on Documents. Give each Suspense a skeleton fallback, or read searchParams in a server page component and pass them as props so the form shell is in the static HTML.
 
 ### COR-53 · low · Navigation gaps: Messages highlights the AI "Ask" tab, several pages have no active item, tabs are not deep-linkable, 404 leaves the app
@@ -907,11 +908,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Add Messages (with unread count) to the nav and give each route its own active rule. Sync tabs to `?tab=` and link the deadline banner to `/cases/[id]?tab=plan`. Use router.back() with a fallback for back links. Add app/(citizen)/not-found.tsx inside the shell and call notFound() for unknown ids once pages fetch on the server.
 
-### COR-54 · low · Scripted assistant replies: substring intent matching misfires and dates are shown as raw ISO
+### COR-54 · fixed · Scripted assistant replies: substring intent matching misfires and dates are shown as raw ISO
 
 - **Where:** `services/mock/chat.ts:8`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: replies show dates in words, in the page's language.
 - **Fix:** When the real model is wired in, delete replyFor. Until then match whole words with regex word boundaries, format dates with formatDate, pick the nearest non-overdue deadline, and add unit tests for the intent table.
 
 ### COR-M02 · low · Generated analysis marks the original document as "You have this" for any upload and for nothing verified
@@ -921,11 +922,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Added by the second reviewer
 - **Fix:** Default the item to an unknown/optional state until a document is actually parsed, or let the user tick the checklist themselves and store that choice.
 
-### COR-M03 · low · HEIC is in the allowed MIME list but not in the picker's accept list or the error copy, and its preview cannot render
+### COR-M03 · fixed · HEIC is in the allowed MIME list but not in the picker's accept list or the error copy, and its preview cannot render
 
 - **Where:** `components/ui/FileDropzone.tsx:51`
 - **Effort:** S
-- **Status:** Added by the second reviewer
+- **Status:** Fixed with the multilingual work: HEIC is no longer accepted, so nothing is offered that cannot be shown.
 - **Fix:** Decide one policy: either remove image/heic from the allowed list, or add it to accept and the copy and convert to JPEG before preview; add an onError fallback on the preview <img>.
 
 ## Architecture and production readiness
@@ -972,11 +973,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Impact:** Launching with real users means processing highly sensitive personal data (legal notices, family, criminal and employment matters, third-party names) with no recorded consent, no notice, no way to withdraw, export or erase. That is a launch blocker under India's Digital Personal Data Protection Act 2023 and its Rules (confirm the current commencement schedule with counsel) and a trust blocker regardless.
 - **Fix:** Add `consents(id, user_id, purpose, notice_version, language, granted_at, withdrawn_at, ip, user_agent)` with purposes `ai_document_processing`, `share_with_advocate`, `analytics`, `notifications`; write a row on sign-up and on each case creation (server-side). Ship `/privacy`, `/terms`, `/grievance` pages (named grievance officer and contact), link them from components/marketing/Chrome.tsx footer and the auth layout. In Settings add: download my data, delete a case, delete my account, withdraw consent. Add a retention policy (e.g. originals purged N days after case closure) enforced by a pg_cron job, and a breach-response runbook. Have an Indian privacy lawyer review the notice text in each launch language.
 
-### ARC-08 · critical · Exact-pinned Next.js 15.5.9 carries critical/high advisories
+### ARC-08 · fixed · Exact-pinned Next.js 15.5.9 carries critical/high advisories
 
 - **Where:** `package.json:14`
 - **Effort:** S
-- **Status:** Reproduced first-hand
+- **Status:** Fixed in Phase 0: moved to Next.js 16.4; production dependencies audit clean.
 - **Impact:** Any internet-facing deployment of this build is exposed to the published Next.js advisories. Exact pinning with no update bot means it stays vulnerable until someone notices.
 - **Fix:** Before any deploy: bump `next` and `eslint-config-next` together to the patched 15.5.x release named in those two advisories, run `npm audit fix` for the transitive postcss/sharp/source-map-js findings, rebuild. Add Dependabot (or Renovate) with security updates enabled and `npm audit --omit=dev --audit-level=high` as a failing CI step. Schedule the Next 16 upgrade (Turbopack stable; `middleware.ts` is renamed to `proxy.ts`) after the backend foundation lands, not before.
 
@@ -1036,11 +1037,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Impact:** When a user or regulator asks 'why did the app tell me the deadline was the 27th?', there is no way to know which model, prompt or document produced it, no way to re-run after a prompt fix without overwriting history, no way to show 'found on page 2', and no way to hold an output for human review. For AI-generated legal information this is the core accountability record.
 - **Fix:** Add to the model and the `analyses` table: `id, version, status, createdAt, language, sourceDocumentIds[], provenance {provider, modelId, promptVersion, pipelineVersion, inputTokens, outputTokens, costInr, latencyMs, jobId}, review {state: none|queued|approved|changes_requested, reviewerId, reviewedAt, notes}, safetyFlags[]`. On every item add `confidence: number` and `citations: {documentId, page, quote}[]`. On DeadlineItem add `basis: "stated_in_document" | "computed" | "user_provided"`. Analyses are immutable; a re-run inserts version n+1. The UI hides or marks items without a citation.
 
-### ARC-16 · high · Deadline urgency is stored, never derived: the dashboard announces 'A date is coming' for dates already past
+### ARC-16 · fixed · Deadline urgency is stored, never derived: the dashboard announces 'A date is coming' for dates already past
 
 - **Where:** `app/(citizen)/dashboard/page.tsx:38`
 - **Effort:** S
-- **Status:** Reproduced first-hand
+- **Status:** Fixed in Phase 0: urgency is worked out from the date each time.
 - **Impact:** Deadlines are the most safety-critical output of this product. A stored urgency label goes stale the day after it is written: past dates keep showing as 'Urgent'/'coming', and a date that has become near stays 'Upcoming'. `formatDate` (lib/format.ts:17) also parses date-only strings as UTC and formats in the device zone, so users outside IST can see the previous day.
 - **Fix:** Create `domain/deadline.ts` with `deadlineState(dateIso, now, tz = "Asia/Kolkata"): "overdue" | "today" | "urgent" | "soon" | "upcoming" | "none"` and delete `urgency` from the persisted model. Use it on the dashboard (exclude or separately flag overdue), the case page and reminders. Add `timeZone: "Asia/Kolkata"` to the Intl formatters and treat `YYYY-MM-DD` as a calendar date. Cover with Vitest table tests (month ends, IST midnight).
 
@@ -1048,15 +1049,15 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `domain/lawyer.ts:17`
 - **Effort:** L
-- **Status:** Confirmed by a second reviewer
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Impact:** A boolean cannot express who verified an advocate, against which State Bar Council roll, when, or that it lapsed. Carrying this UI into production means asserting verification, quality ratings, success rates and algorithmic ranking of advocates; Bar Council of India Rule 36 restricts advertising and solicitation by advocates and recent enforcement has targeted online listing platforms, so this is a regulatory exposure for both the startup and listed advocates.
 - **Fix:** Before building: obtain a written opinion on BCI Rule 36 and current directives on online lawyer directories; decide between (a) a neutral directory limited to permitted particulars (name, enrolment number, State Bar Council, year, practice areas, languages, contact), (b) referral to legal aid (NALSA/DLSA) only, or (c) a paid-consult marketplace. Model: `advocate_profiles(user_id, enrolment_number, state_bar_council, enrolment_date, verification_state: unsubmitted|pending|verified|rejected|suspended, verified_by, verified_at, evidence_keys, reverify_due)`; verification is a manual admin queue checking the State Bar Council roll and ID (no reliable public API), re-checked yearly. Remove `successRateLabel`, `casesHandledLabel` and the match percentage; sort by transparent filters (district, language, practice area).
 
-### ARC-21 · high · No error boundaries or route-level loading UI
+### ARC-21 · fixed · No error boundaries or route-level loading UI
 
 - **Where:** `app/(citizen)/layout.tsx:4`
 - **Effort:** S
-- **Status:** Confirmed by a second reviewer
+- **Status:** Fixed in Phase 0: error and loading screens added.
 - **Impact:** Any render-time exception blanks the entire app with the framework default error. This becomes likely the moment data is real: e.g. app/(citizen)/cases/[caseId]/page.tsx:182 `{analysis.keyFacts.slice(0, 5).map(` throws if a stored or model-produced analysis lacks an array. A frightened user holding a legal notice gets a white screen with no next step.
 - **Fix:** Add `app/global-error.tsx`, `app/(citizen)/error.tsx` (plain-language message, Retry via `reset()`, link to /legal-aid, `Sentry.captureException`), `app/(citizen)/loading.tsx`, and `app/(citizen)/cases/[caseId]/not-found.tsx`. Validate every analysis with the zod schema at the API boundary so malformed data becomes an `unavailable` result rather than a crash.
 
@@ -1064,7 +1065,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `package.json:5`
 - **Effort:** M
-- **Status:** Confirmed by a second reviewer
+- **Status:** Partly done: 52 unit tests and a CI workflow are in the repository. CI has not run, because no remote exists yet. No end-to-end tests.
 - **Impact:** Nothing protects the deadline logic, the authorisation rules or the upload journey from regressions, and nothing stops a vulnerable or broken build from being deployed.
 - **Fix:** Vitest + Testing Library for `domain/deadline`, `lib/lawyerMatch`, `lib/format` and store logic; a shared contract suite (`services/__contract__/*.contract.ts`) executed against both the mock and the real implementation (local Supabase via `supabase start`), including cross-user access denial; Playwright on a mobile viewport for sign-in -> new case -> upload -> processing -> analysis -> ask; promptfoo evals for the AI pipeline. GitHub Actions workflow on every PR: `npm ci`, typecheck, lint, vitest, `next build`, `npm audit --omit=dev --audit-level=high`, Playwright smoke; protect `main`.
 
@@ -1110,11 +1111,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Adjusted by a second reviewer: Absence confirmed (no instrumentation.ts, no sentry config, zero console calls, no telemetry dependency, SessionProvider is the only provider at app/layout.tsx:34). Must exist before launch but is roughly a day of work and blocks nothing structurally; medium.
 - **Fix:** `@sentry/nextjs` with `instrumentation.ts`, `sendDefaultPii: false`, request bodies off and a `beforeSend` scrubber (never send document text, narratives or phone numbers). Structured server logs with pino including `requestId`, `userId` hash, `jobId`. PostHog (EU cloud or self-hosted) with autocapture and session replay disabled on case/chat routes; track only named funnel events (sign_up, case_created, upload_confirmed, analysis_ready, analysis_viewed, advocate_contacted). Trace LLM calls (prompt version, tokens, latency, cost, eval score) in self-hosted Langfuse so prompts with user content stay on infrastructure you control. Add uptime checks and a cost dashboard.
 
-### ARC-24 · medium · The folder is a ZIP export, not a git repository, and is nested one level deep
+### ARC-24 · fixed · The folder is a ZIP export, not a git repository, and is nested one level deep
 
 - **Where:** `README.md:44`
 - **Effort:** S
-- **Status:** Adjusted by a second reviewer: No .git in ROOT or its parent and the nested Download-ZIP layout are confirmed. The quoted evidence is stale: README.md was rewritten, is 41 lines long and has no merge markers, so the 'frozen mid-merge' claim is no longer true. Not being a clone is a working-copy hygiene issue (the upstream repo presumably exists), so medium.
+- **Status:** Fixed in Phase 0: the project is a git repository with the nested folder flattened. A remote has not been created yet.
 - **Fix:** Find the original GitHub repository and clone it; complete the merge there (keep the HEAD side of README) rather than running `git init` on the ZIP. If the remote is lost, `git init` inside the inner folder, commit, push to a private GitHub repo, enable branch protection and required CI. Work from the repo root so the nested directory disappears.
 
 ### ARC-25 · medium · 15 of 18 pages are client components: no Server Component data fetching, server actions or route handlers
@@ -1131,11 +1132,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Introduce `Page<T> = { items: T[]; nextCursor: string | null }` and `ListParams = { cursor?: string; limit?: number; sort?: string }`. Change to `caseRepository.listMine(params & {status?})`, `lawyerRepository.search({filters, q, ...params})`, `chatService.list(conversationId, params)`, `lawyerChatService.listThreads(params)`. Implement with keyset pagination in Postgres and `pg_trgm`/full-text search for advocate name and area; replace the case-page directory load with `lawyerRepository.suggestForCase(caseId, {limit: 4})` computed server-side.
 
-### ARC-27 · medium · /assistant silently attaches a general question to the user's most recent case, and ?q= auto-sends on load
+### ARC-27 · fixed · /assistant silently attaches a general question to the user's most recent case, and ?q= auto-sends on load
 
 - **Where:** `app/(citizen)/assistant/page.tsx:25`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: the assistant lets the person choose the problem, and nothing is sent on load.
 - **Fix:** Add `Conversation { id, userId, caseId: CaseId | null, title, createdAt }` and key ChatService by `conversationId`. /assistant starts a case-less conversation with an explicit 'About which problem?' picker. Change `seedQuestion` to prefill the composer only; never send without a click. Validate `caseId` ownership server-side.
 
 ### ARC-28 · medium · Mock services and all fixtures are statically bundled; there is no environment configuration or data-source switch
@@ -1170,21 +1171,21 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `domain/thread.ts:13`
 - **Effort:** L
-- **Status:** Code review
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** `consultation_requests(id, citizen_id, advocate_id, case_id, status: requested|accepted|declined|closed, shared_document_ids[], consent_id, created_at)`, `threads(id, request_id)`, `messages(id, thread_id, sender_id, body, created_at, read_at)` with RLS for the two participants only. Deliver with Supabase Realtime and notify by SMS/WhatsApp when the recipient is offline. Document sharing is an explicit per-document consent (ARC-07). Remove the Online label and call icons until those features exist.
 
 ### ARC-33 · medium · Payments, scheduling and notifications are linked in the UI but have no model or service
 
 - **Where:** `app/(citizen)/messages/page.tsx:194`
 - **Effort:** L
-- **Status:** Code review
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** Hide both links now. For Phase 3: Razorpay (UPI-first checkout, Route for split payouts to advocates, GST-compliant invoices) with `orders`, `payments`, `payouts`, `invoices` tables and webhook handling in a route handler with signature verification; `availability_slots` and `bookings`; `notifications(id, user_id, channel, template, payload, scheduled_for, sent_at)` driven by Inngest cron for deadline reminders over SMS/WhatsApp (MSG91) and web push. Whether the platform may take a commission on advocate fees is part of the Rule 36 decision in ARC-18.
 
-### ARC-34 · medium · No internationalisation: English is hard-coded in markup, fonts, types and copy
+### ARC-34 · fixed · No internationalisation: English is hard-coded in markup, fonts, types and copy
 
 - **Where:** `app/layout.tsx:26`
 - **Effort:** L
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: all interface text is in message files in three languages, checked by tests.
 - **Fix:** Adopt `next-intl` with an `app/[locale]/` segment and message catalogues `messages/en.json` and `messages/hi.json` first, then Marathi, Tamil, Bengali, Telugu, Kannada. Load Noto Sans + Noto Sans Devanagari (and per-script fonts on demand) with `next/font` and `display: "swap"`. Store `analysis.language` and generate the explanation in the user's language while quoting the document in its original script. Maintain a reviewed legal-term glossary per language and include each language in the eval set.
 
 ### ARC-35 · medium · Case lifecycle has no state machine: createDraft creates 'processing', 'draft' and 'error' are never set
@@ -1194,11 +1195,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Server-owned transitions `draft -> submitted -> processing -> ready | needs_more_info | failed`, enforced in one `server/cases/transitions.ts` function and a DB check constraint. Split the contract into `saveDraft(input)` (autosaved per step) and `submit(caseId, consent)`. Surface `failed` with a Retry action that enqueues a new job.
 
-### ARC-36 · medium · Four analysis sections are never rendered and the wizard writes 'desired outcome' into the wrong field
+### ARC-36 · fixed · Four analysis sections are never rendered and the wizard writes 'desired outcome' into the wrong field
 
 - **Where:** `app/(citizen)/cases/new/page.tsx:99`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: every section is shown and the form saves the right field.
 - **Fix:** Rename the state to `outcomeWanted` and map it to `whatOutcomeWanted`; add the `whenHappened` and `whoInvolved` prompts. Add `ClausesSection`, `ObligationsSection` (using the unused `ACTOR_LABEL`), `SourcesSection` and `QuestionsForAdvocate` components to the case page.
 
 ### ARC-37 · medium · Demo wording and privacy promises are hard-coded across 35 files and become false when a backend exists
@@ -1215,25 +1216,25 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** `app/manifest.ts` plus a Serwist (`@serwist/next`) service worker that precaches the shell and the static legal-aid/resources pages; autosave wizard drafts to IndexedDB (`idb-keyval`); compress photos client-side (`browser-image-compression`, target under 500 KB per page) and use resumable uploads; an offline banner and retry queue for sends. Set a budget of roughly 170 KB gzipped first-load JS for citizen routes and enforce it with `@next/bundle-analyzer` and Lighthouse CI on a slow-4G mobile profile; lazy-load the chat panel and any PDF viewer with `next/dynamic`.
 
-### ARC-39 · medium · next.config.ts is empty: no security headers or production settings
+### ARC-39 · fixed · next.config.ts is empty: no security headers or production settings
 
 - **Where:** `next.config.ts:4`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: security headers set; the content security policy is set per request.
 - **Fix:** Add `poweredByHeader: false`, `reactStrictMode: true`, and `async headers()` returning `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(self), microphone=(), geolocation=()`, and a CSP with `frame-ancestors 'none'` (nonce-based script policy set in middleware). Add `images.remotePatterns` for the storage host and `experimental.serverActions.bodySizeLimit`. Wrap the config with `withSentryConfig` when ARC-22 lands.
 
-### ARC-40 · medium · Sign-in redirects to an unvalidated ?next= value
+### ARC-40 · fixed · Sign-in redirects to an unvalidated ?next= value
 
 - **Where:** `app/(auth)/sign-in/page.tsx:16`
 - **Effort:** S
-- **Status:** Reproduced first-hand
+- **Status:** Fixed in Phase 0: only same-site paths are followed after sign-in.
 - **Fix:** Add `lib/safeRedirect.ts`: accept only values that start with a single `/`, are not `//` or `/\\`, and resolve to the same origin via `new URL(next, location.origin)`; otherwise use `/dashboard`. Apply the same function in the middleware redirect and in the future OTP-verify handler.
 
-### ARC-41 · medium · Route protection is an allow-list duplicated in two places and fails open for new routes
+### ARC-41 · fixed · Route protection is an allow-list duplicated in two places and fails open for new routes
 
 - **Where:** `middleware.ts:5`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: one deny-by-default rule replaces the two lists.
 - **Fix:** Invert to deny-by-default: one matcher `'/((?!_next/|favicon.ico|demo/|api/public/).*)'` and a small `PUBLIC_PATHS` set (`/`, `/sign-in`, `/sign-up`, `/forgot-password`, `/privacy`, `/terms`, `/grievance`). Additionally check the session in `app/(citizen)/layout.tsx` as a Server Component (`redirect('/sign-in')`), and rely on route-handler checks plus RLS for actual data protection.
 
 ### ARC-42 · medium · Advocate portal and admin/back-office do not exist
@@ -1250,11 +1251,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Reference tables `states` and `districts` (use Local Government Directory codes) and a `languages` enum of BCP-47 codes; replace the two text inputs with state and district selects (searchable, localised); store `state_code`/`district_code` on cases and advocate profiles; move matching to SQL on codes.
 
-### ARC-44 · medium · README contains unresolved merge-conflict markers with contradictory content
+### ARC-44 · fixed · README contains unresolved merge-conflict markers with contradictory content
 
 - **Where:** `README.md:3`
 - **Effort:** S
-- **Status:** Fixed: README rewritten during the rename.
+- **Status:** Fixed: README rewritten.
 - **Fix:** Keep the HEAD half, delete the markers and the stale half, then rewrite: what the product is and is not, architecture diagram (client -> route handlers -> server services -> Postgres/Storage/LLM), local setup with `.env.example`, scripts, data-handling rules for contributors, and links to the privacy and AI-safety docs.
 
 ### ARC-M01 · medium · Two independent sources of truth for the session (cookie for the server, localStorage for the client) can disagree
@@ -1271,25 +1272,25 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Added by the second reviewer
 - **Fix:** Store a numeric schemaVersion inside the blob, validate on load with a schema (e.g. zod) and fall back to seed or run a migration on mismatch; on key rename, migrate or explicitly delete the previous key.
 
-### ARC-45 · low · .gitignore blocks .env.example; ignored build artefacts are present on disk
+### ARC-45 · fixed · .gitignore blocks .env.example; ignored build artefacts are present on disk
 
 - **Where:** `.gitignore:34`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: .env.example is tracked.
 - **Fix:** Change to `.env*` followed by `!.env.example`; commit `.env.example` with placeholder names only. Also add `/playwright-report`, `/test-results`, `.sentryclirc` and `supabase/.temp` when those tools arrive. Delete `.next/` and `tsconfig.tsbuildinfo` before the first commit as a sanity check that they stay untracked.
 
-### ARC-46 · low · package.json lacks typecheck, test and format scripts, a lint target and an engines field
+### ARC-46 · fixed · package.json lacks typecheck, test and format scripts, a lint target and an engines field
 
 - **Where:** `package.json:9`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: typecheck, test, format and check scripts, and an engines field.
 - **Fix:** Add `"lint": "eslint . --max-warnings=0"`, `"typecheck": "tsc --noEmit"`, `"test": "vitest run"`, `"test:e2e": "playwright test"`, `"format": "prettier --write ."`, `"format:check": "prettier --check ."`, `"engines": { "node": ">=20.9" }`, a `packageManager` field and `.nvmrc`. Install `prettier` + `prettier-plugin-tailwindcss`, and `husky` + `lint-staged` for pre-commit.
 
-### ARC-47 · low · Production build uses Turbopack, which is beta for builds on Next 15.5
+### ARC-47 · fixed · Production build uses Turbopack, which is beta for builds on Next 15.5
 
 - **Where:** `package.json:7`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: on Next.js 16 this is the standard build.
 - **Fix:** Use `"build": "next build"` while on 15.5.x and keep `--turbopack` for `dev` only; re-enable for builds after the planned Next 16 upgrade where it is the stable default.
 
 ### ARC-48 · low · TypeScript config is looser than the code assumes
@@ -1306,29 +1307,29 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Add a `no-restricted-imports` block: forbid `@/data/mocks/*` and `@/services/mock/*` everywhere except `services/**` and tests; forbid `@/server/*` in files under `components/**`, `hooks/**` and client pages; forbid `@/services` in `app/**/page.tsx` once hooks exist (ARC-12). Put `import "server-only"` at the top of every `server/` module.
 
-### ARC-50 · low · Identifiers are generated in the client from Date.now()
+### ARC-50 · fixed · Identifiers are generated in the client from Date.now()
 
 - **Where:** `services/mock/cases.ts:25`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: ids are random.
 - **Fix:** Ids are assigned by the database (`uuid` v7 default) and returned by the API; clients send only a `clientMessageId`/idempotency key. If a human-readable case reference is wanted, generate it from a DB sequence (replace the lossy `publicCaseRef` hash in lib/format.ts:77-80).
 
-### ARC-51 · low · Dead exports and a duplicated status-label map; no unused npm dependencies
+### ARC-51 · fixed · Dead exports and a duplicated status-label map; no unused npm dependencies
 
 - **Where:** `lib/caseUi.ts:3`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: the duplicate map and unused exports are gone.
 - **Fix:** Keep one status map (label + tone) in domain/case.ts and delete lib/caseUi.ts; wire `daysUntil` into the new deadline module (ARC-16) and `ACTOR_LABEL` into the obligations section (ARC-36); delete the rest. Add `knip` to CI to report unused files, exports and dependencies.
 
 ## UX and accessibility
 
 28 findings: 0 critical, 5 high, 17 medium, 6 low.
 
-### UX-01 · high · Case screen shows a skeleton forever when the case has no analysis
+### UX-01 · fixed · Case screen shows a skeleton forever when the case has no analysis
 
 - **Where:** `app/(citizen)/cases/[caseId]/page.tsx:97`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: a missing explanation shows a message with a way back.
 - **Impact:** When getAnalysis fails (draft/error cases, or a user who left the processing screen early) setError is called but the error branch at line 84 requires `error && !record`, so the user sees an endless pulsing skeleton with no message or way out. CaseCard sends every non-processing status here.
 - **Fix:** In app/(citizen)/cases/[caseId]/page.tsx render an error/empty state when `record && error && !analysis` (title, message, 'Try reading again' linking to /cases/{id}/processing, and Back to My problems) before the skeleton branch.
 
@@ -1340,11 +1341,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Impact:** All pages are "use client" and none exports metadata, so the `%s · Juris` template is never used; screen-reader users, browser history and Android task switcher all show one identical title for sign-in, dashboard, a case and messages.
 - **Fix:** Add a server layout.tsx (or split each page into a server page.tsx exporting `metadata = { title: 'My problems' }` plus a client component) for each route under app/(auth) and app/(citizen); for cases/[caseId] set document.title from record.title in an effect.
 
-### UX-03 · high · New-case mode picker is a radio group with no semantics and a colour-only selected state
+### UX-03 · fixed · New-case mode picker is a radio group with no semantics and a colour-only selected state
 
 - **Where:** `app/(citizen)/cases/new/page.tsx:133`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: the choice is a real radio group with a tick as well as colour.
 - **Impact:** The three choices are plain buttons with no role=radio/aria-checked or aria-pressed, so assistive tech never announces which is chosen (4.1.2), and sighted users get only a pale blue tint versus white (1.4.1). "both" is preselected, which is invisible to a screen reader.
 - **Fix:** In app/(citizen)/cases/new/page.tsx wrap the options in a <fieldset><legend>How do you want to start?</legend> using real <input type="radio" name="mode"> inside styled labels (or role="radiogroup" with aria-checked and arrow keys) and add a check icon to the selected card.
 
@@ -1352,37 +1353,37 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `app/(citizen)/cases/new/page.tsx:199`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Partly done: focus moves to each step and the story is marked required. Errors are not yet tied to individual fields.
 - **Impact:** Errors for title, file and story appear as a single paragraph at the bottom, never passed to the Input `error` prop, so no field gets aria-invalid/aria-describedby (3.3.1); required fields are not marked (3.3.2) while only one is labelled "(optional)". Changing step, or tapping 'See what to do' on the case page, swaps content without moving focus or announcing the new step, and the Stepper marks done steps by colour only.
 - **Fix:** In app/(citizen)/cases/new/page.tsx keep per-field error state and pass `error=` to Input/Textarea, add `required` plus a visible 'required' hint, focus the first invalid field on failure, and on step change focus a per-step <h2 tabIndex={-1}>; in components/ui/FileDropzone.tsx Stepper add visually hidden 'completed'/'current' text.
 
-### UX-05 · high · No Hindi/i18n path: lang fixed to en and every string is inline JSX
+### UX-05 · fixed · No Hindi/i18n path: lang fixed to en and every string is inline JSX
 
 - **Where:** `app/layout.tsx:26`
 - **Effort:** L
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: three languages, chosen on the first screen.
 - **Impact:** There is no message catalogue, locale routing or language switcher, so users more comfortable in Hindi cannot use the product at all, and translated or user-typed Devanagari content would be announced with an English voice. Strings are spread across roughly 40 files, including constants like CITIZEN_NAV and MATTER_LABELS.
 - **Fix:** Adopt next-intl (or similar) with messages/en.json and messages/hi.json, move all literals from app/** and components/** plus lib/constants.ts labels into it, drive <html lang> from the active locale in app/layout.tsx, and add a language choice on the landing header and Settings.
 
-### UX-06 · medium · Inter is loaded with the latin subset only, so Devanagari falls back to an unmatched system font
+### UX-06 · fixed · Inter is loaded with the latin subset only, so Devanagari falls back to an unmatched system font
 
 - **Where:** `app/layout.tsx:9`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: Noto Sans Devanagari is loaded alongside Inter.
 - **Fix:** In app/layout.tsx load Noto_Sans_Devanagari (weights 400/500/600) via next/font/google with its own CSS variable and add it to the font-family stack in app/globals.css line 55; raise line-height for Devanagari text.
 
-### UX-07 · medium · Formatters hard-code en-IN and build sentences by concatenation; initials slicing breaks Indic scripts
+### UX-07 · fixed · Formatters hard-code en-IN and build sentences by concatenation; initials slicing breaks Indic scripts
 
 - **Where:** `lib/format.ts:50`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: month names are fixed per language, so dates read the same everywhere; initials keep a Devanagari letter whole.
 - **Fix:** In lib/format.ts take a locale argument for Intl.DateTimeFormat/NumberFormat, use Intl.RelativeTimeFormat and ICU plural messages, and compute initials with Intl.Segmenter graphemes; in components/layout/CitizenShell.tsx allow nav labels to wrap to two lines.
 
-### UX-08 · medium · Chat views do not scroll to or reliably announce new messages, and show no pending or error state
+### UX-08 · fixed · Chat views do not scroll to or reliably announce new messages, and show no pending or error state
 
 - **Where:** `app/(citizen)/messages/page.tsx:178`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: replies are announced, scrolled into view, and sending shows as busy.
 - **Fix:** In components/chat/ChatPrimitives.tsx add a shared MessageList with role="log" aria-live="polite" aria-relevant="additions" and a bottom sentinel scrolled into view on new messages; use it in components/assistant/AskAiPanel.tsx and app/(citizen)/messages/page.tsx, add a pending flag that disables input and chips, and show a role="alert" on send failure.
 
 ### UX-09 · medium · Messages, My papers, Free legal aid, Official websites and Saved people are reachable only via a 32px avatar then Settings
@@ -1392,39 +1393,39 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** In lib/constants.ts and components/layout/CitizenShell.tsx add a fifth 'More' item (or replace the avatar with a 44px labelled menu button) and show an unread badge; wrap the avatar link in a size-11 flex container; link Messages from the dashboard.
 
-### UX-10 · medium · Active nav state is colour-only, has no aria-current, and is wrong for /messages
+### UX-10 · fixed · Active nav state is colour-only, has no aria-current, and is wrong for /messages
 
 - **Where:** `components/layout/CitizenShell.tsx:23`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: the current item is marked for screen readers and has a bar as well as colour.
 - **Fix:** In components/layout/CitizenShell.tsx map /messages and /bookmarks to the /lawyers item, add aria-current={active ? 'page' : undefined} to both Link maps, and add a non-colour cue (filled icon or top indicator bar) to the mobile item.
 
-### UX-11 · medium · List pages fail silently: skeleton forever on error, or a wrong empty state before data loads
+### UX-11 · fixed · List pages fail silently: skeleton forever on error, or a wrong empty state before data loads
 
 - **Where:** `app/(citizen)/cases/page.tsx:23`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: list screens show a failure message.
 - **Fix:** Add an error state with a Retry button to app/(citizen)/cases/page.tsx, lawyers/page.tsx, messages/page.tsx and documents/page.tsx; initialise state to null in assistant/page.tsx and bookmarks/page.tsx and render Skeleton until resolved; in components/ui/Display.tsx give Skeleton role="status" with sr-only 'Loading'.
 
-### UX-12 · medium · Error screens are dead ends with no retry or way back
+### UX-12 · fixed · Error screens are dead ends with no retry or way back
 
 - **Where:** `app/(citizen)/cases/[caseId]/processing/page.tsx:73`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: error screens offer a way back.
 - **Fix:** In processing/page.tsx add 'Try again' (re-run) and 'Back to My problems' actions and wrap the <ol> in aria-live="polite"; add a back link in the lawyers/[lawyerId]/page.tsx error branch; in app/not-found.tsx link to /dashboard when the session cookie exists.
 
-### UX-13 · medium · Uploaded image preview is a blob: URL saved to storage, so it breaks after reload and shifts layout
+### UX-13 · fixed · Uploaded image preview is a blob: URL saved to storage, so it breaks after reload and shifts layout
 
 - **Where:** `components/ui/FileDropzone.tsx:28`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Fixed in Phase 0: the temporary preview link is no longer stored.
 - **Fix:** In components/ui/FileDropzone.tsx create a downscaled data URL (canvas, about 1200px) or store the Blob in IndexedDB and revoke object URLs; in cases/[caseId]/page.tsx add an onError fallback to the EmptyState, plus max-h-[70vh] object-contain and an aspect-ratio box.
 
-### UX-14 · medium · File picker exposes an unlabelled, invisibly focused native input and an unassociated 'Document' label
+### UX-14 · fixed · File picker exposes an unlabelled, invisibly focused native input and an unassociated 'Document' label
 
 - **Where:** `components/ui/FileDropzone.tsx:73`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: the picker is one labelled button.
 - **Fix:** In components/ui/FileDropzone.tsx add tabIndex={-1} and aria-hidden to the input (or make the visible control a <label htmlFor>), accept an id/label prop wired with aria-labelledby, align accept and regex with the allow-list, use 'Take a photo or choose a file' wording on touch, and give Remove min-h-11 px-3.
 
 ### UX-15 · medium · 28 uses of 10-12px text, several carrying disclaimers, fees and status
@@ -1441,18 +1442,18 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Add `inline-flex size-11 items-center justify-center` to the back button in messages/page.tsx, `min-h-11 px-4 text-sm` to chips in components/assistant/AskAiPanel.tsx, `min-h-11` to the back link in lawyers/[lawyerId]/page.tsx, and change size-10/min-h-10 to size-11/min-h-11 in components/ui/Button.tsx and components/ui/AppKit.tsx.
 
-### UX-17 · medium · Auth forms: no autocomplete tokens, sign-up ignores its password field and has no error path, email-only identity
+### UX-17 · fixed · Auth forms: no autocomplete tokens, sign-up ignores its password field and has no error path, email-only identity
 
 - **Where:** `app/(auth)/sign-up/page.tsx:23`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: autocomplete hints added and the dead password field removed.
 - **Fix:** In app/(auth)/sign-up/page.tsx add autoComplete="name"/"email"/"new-password", control or remove the password field, and handle `!result.ok` with setPending(false) and an alert; in sign-in/page.tsx use autoComplete="email" and stop overriding displayName; plan a phone field with type="tel" inputMode="numeric" autoComplete="tel-national".
 
 ### UX-18 · medium · No Open Graph, robots, sitemap, manifest, theme colour or noindex; description is the disclaimer
 
 - **Where:** `app/layout.tsx:17`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Partly done: the demo is kept out of search engines and has a theme colour. Sharing images, a sitemap and a manifest are not done.
 - **Fix:** In app/layout.tsx add metadataBase, a real description, openGraph/twitter and `export const viewport = { themeColor: '#0f2747' }`; add app/robots.ts (disallow the middleware.ts prefixes), app/sitemap.ts, app/manifest.ts, app/icon.png, app/apple-icon.png, app/opengraph-image.tsx, and `robots: { index: false }` metadata in app/(auth)/layout.tsx and app/(citizen)/layout.tsx.
 
 ### UX-19 · medium · The same things have three names each: problem/case/file, person/lawyer/advocate, paper/document
@@ -1469,39 +1470,39 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Code review
 - **Fix:** Rewrite these strings in components/assistant/AskAiPanel.tsx, cases/[caseId]/processing/page.tsx, (auth)/sign-in and sign-up pages, and cases/new/page.tsx (map `source` to a human label, rename the h1 to 'Tell us about your problem'); keep one consistent 'Sample answers only' label.
 
-### UX-21 · medium · Legal-aid page gives no tappable helpline and tells emergency users to 'contact local police'
+### UX-21 · fixed · Legal-aid page gives no tappable helpline and tells emergency users to 'contact local police'
 
 - **Where:** `app/(citizen)/legal-aid/page.tsx:23`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: tap-to-call helplines.
 - **Fix:** In app/(citizen)/legal-aid/page.tsx add verified <a href="tel:..."> cards (NALSA helpline, emergency number, consumer helpline) with min-h-12 targets, mark external links with an icon and sr-only '(opens official website)', and link this page from the dashboard.
 
 ### UX-22 · medium · Account page offers only Sign out: no profile edit, language, or delete-my-data control
 
 - **Where:** `app/(citizen)/settings/page.tsx:50`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Partly done: language can be changed from My account. Profile edit and delete-my-data are not done.
 - **Fix:** In app/(citizen)/settings/page.tsx add an editable name field, a language selector, and a 'Delete everything on this device' action with a confirm dialog; add per-case delete on cases/[caseId]/page.tsx; state clearly what Sign out keeps or removes.
 
-### UX-23 · low · Chat input is 14px single-line with no mobile keyboard hints and accepts empty sends
+### UX-23 · fixed · Chat input is 14px single-line with no mobile keyboard hints and accepts empty sends
 
 - **Where:** `components/chat/ChatPrimitives.tsx:57`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Fixed with the multilingual work: 16px input, send hint for phone keyboards, empty sends refused.
 - **Fix:** In components/chat/ChatPrimitives.tsx switch to an auto-growing <textarea rows={1}> at text-base with enterKeyHint="send", and disable Send when value.trim() is empty.
 
 ### UX-24 · low · Lawyer filter sheet: 'Apply' does nothing, no clear-all, and Select hints/errors are not associated
 
 - **Where:** `app/(citizen)/lawyers/page.tsx:123`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** In lawyers/page.tsx rename the button to 'Show N people', add 'Clear all' in the sheet and as the EmptyState action; in components/ui/Field.tsx give Select the same id/aria-describedby wiring as Input; add aria-pressed={saved} to the save button.
 
 ### UX-25 · low · Mobile Messages has no visible h1 and uses 100vh under a fixed bottom nav with no safe-area padding
 
 - **Where:** `app/(citizen)/messages/page.tsx:96`
 - **Effort:** S
-- **Status:** Code review
+- **Status:** Switched off behind a flag that is off by default, so not reachable. Not fixed: see decision 1 in the launch plan.
 - **Fix:** In messages/page.tsx render the advocate name as the mobile <h1> in the thread header and use 100dvh; in components/layout/CitizenShell.tsx add pb-[env(safe-area-inset-bottom)] to the mobile nav and export viewport with viewportFit: 'cover' from app/layout.tsx.
 
 ### UX-26 · low · Marketing header is likely to squeeze or wrap at 320px

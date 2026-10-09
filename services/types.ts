@@ -16,7 +16,6 @@ export interface AuthCredentials {
 export interface AuthService {
   signIn(credentials: AuthCredentials): Promise<ServiceResult<User>>;
   signUp(credentials: AuthCredentials): Promise<ServiceResult<User>>;
-  requestPasswordReset(email: string): Promise<ServiceResult<{ message: string }>>;
   signOut(): Promise<void>;
   getSession(): Promise<User | null>;
 }

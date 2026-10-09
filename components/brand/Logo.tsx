@@ -1,6 +1,9 @@
-import { APP_NAME, APP_TAGLINE } from "@/lib/constants";
+"use client";
+
+import { APP_NAME } from "@/lib/constants";
 import { cn } from "@/lib/cn";
 import { Scale } from "lucide-react";
+import { useTranslations } from "use-intl";
 import Link from "next/link";
 
 export function BrandMark({
@@ -12,6 +15,7 @@ export function BrandMark({
   compact?: boolean;
   href?: string;
 }) {
+  const t = useTranslations("common");
   const light = variant === "light";
   return (
     <Link href={href} className="flex items-center gap-2.5">
@@ -30,8 +34,8 @@ export function BrandMark({
           <span className={cn("block text-sm font-semibold leading-tight", light ? "text-white" : "text-navy")}>
             {APP_NAME}
           </span>
-          <span className={cn("block text-[10px] leading-tight", light ? "text-white/60" : "text-muted")}>
-            {APP_TAGLINE}
+          <span className={cn("block text-[12px] leading-tight", light ? "text-white/60" : "text-muted")}>
+            {t("tagline")}
           </span>
         </span>
       )}

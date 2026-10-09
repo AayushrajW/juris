@@ -1,33 +1,58 @@
+import type { CaseAnalysis } from "@/domain/analysis";
 import type { ChatMessage } from "@/domain/chat";
+import { nextDeadline } from "@/lib/deadlines";
 import { formatDate } from "@/lib/format";
 import type { ChatService } from "@/services/types";
-import { loadStore, updateStore } from "./store";
+import { mockAnalysisService } from "./analysis";
+import { currentLocale, demoText } from "./locale";
+import { loadStore, updateStore, type DemoReplyKind, type StoredChatMessage } from "./store";
 
-function replyFor(caseId: string, content: string): string {
-  const lower = content.toLowerCase();
-  const analysis = loadStore().analyses[caseId];
-  if (lower.includes("deadline") || lower.includes("date")) {
-    const first = analysis?.deadlines[0];
-    return `Demo reply — not from a live model. ${
-      first
-        ? `The sample file lists “${first.label}”${first.date ? ` (${formatDate(first.date)})` : ""}. Confirm any real paper in your hand.`
-        : "This demo case does not list a date."
-    } Juris is not a lawyer.`;
+function mentions(question: string, words: string[]) {
+  return words.some((word) => question.includes(word));
+}
+
+/** Picks one of the scripted replies from the words in the question. No model is involved. */
+function replyKind(content: string): DemoReplyKind {
+  const { keywords } = demoText().chat;
+  const question = content.toLowerCase();
+  if (mentions(question, keywords.person)) return "person";
+  if (mentions(question, keywords.date)) return "date";
+  if (mentions(question, keywords.next)) return "next";
+  return "overview";
+}
+
+function replyText(kind: DemoReplyKind, analysis: CaseAnalysis | null): string {
+  const t = demoText().chat;
+  let body: string;
+  if (kind === "person") {
+    body = t.person;
+  } else if (kind === "date") {
+    const first = analysis ? (nextDeadline(analysis.deadlines) ?? analysis.deadlines[0]) : null;
+    body = first ? t.date(first.label, formatDate(first.date, currentLocale())) : t.noDate;
+  } else if (kind === "next") {
+    const step = analysis?.nextSteps.slice().sort((a, b) => a.order - b.order)[0];
+    body = t.nextStep(step?.text ?? t.defaultStep);
+  } else {
+    body = t.overview(analysis?.overview.oneLine ?? t.defaultOverview);
   }
-  if (lower.includes("lawyer") || lower.includes("advocate")) {
-    return "Demo reply — not from a live model. If you want a person, open Free help for legal aid through official channels. Juris does not represent you.";
-  }
-  if (lower.includes("next") || lower.includes("do ")) {
-    const step = analysis?.nextSteps[0];
-    return `Demo reply — not from a live model. A first sample step is: ${step?.text ?? "collect your papers."} This is not legal advice.`;
-  }
-  const summary = analysis?.overview.oneLine ?? "This demo case has a short overview on the analysis page.";
-  return `Demo reply — not from a live model. ${summary} Ask about dates, papers, or next steps if you want those sections restated. Juris is not a lawyer and does not give legal advice.`;
+  return `${t.prefix} ${body}`;
+}
+
+/**
+ * Replies are written out when they are read, not when they are stored, so
+ * they follow the page's language and the sample dates stay current.
+ */
+async function render(caseId: string, stored: StoredChatMessage[]): Promise<ChatMessage[]> {
+  const result = await mockAnalysisService.getAnalysis(caseId);
+  const analysis = result.ok ? result.data : null;
+  return stored.map(({ demoReply, ...message }) =>
+    demoReply ? { ...message, content: replyText(demoReply, analysis) } : message,
+  );
 }
 
 export const mockChatService: ChatService = {
   async list(caseId) {
-    return { ok: true, data: loadStore().chats[caseId] ?? [] };
+    return { ok: true, data: await render(caseId, loadStore().chats[caseId] ?? []) };
   },
   async send(caseId, content) {
     const trimmed = content.trim();
@@ -35,26 +60,27 @@ export const mockChatService: ChatService = {
       return { ok: false, code: "invalid", message: "Type a question first." };
     }
     const now = new Date().toISOString();
-    const userMsg: ChatMessage = {
-      id: `m-${Date.now()}`,
+    const userMsg: StoredChatMessage = {
+      id: `m-${crypto.randomUUID()}`,
       caseId,
       role: "user",
       content: trimmed,
       createdAt: now,
     };
-    const assistantMsg: ChatMessage = {
-      id: `m-${Date.now()}-a`,
+    const assistantMsg: StoredChatMessage = {
+      id: `m-${crypto.randomUUID()}`,
       caseId,
       role: "assistant",
-      content: replyFor(caseId, trimmed),
+      content: "",
       createdAt: now,
       isDemo: true,
+      demoReply: replyKind(trimmed),
     };
-    let next: ChatMessage[] = [];
+    let next: StoredChatMessage[] = [];
     updateStore((s) => {
       next = [...(s.chats[caseId] ?? []), userMsg, assistantMsg];
       return { ...s, chats: { ...s.chats, [caseId]: next } };
     });
-    return { ok: true, data: next };
+    return { ok: true, data: await render(caseId, next) };
   },
 };

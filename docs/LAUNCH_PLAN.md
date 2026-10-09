@@ -4,6 +4,8 @@
 
 **Written:** 9 October 2026. **Replaces:** the original Phase 1 prototype spec, now retired.
 
+**Status:** Phase 0 is done in the repository, and Marathi, Hindi and English are in. Three Phase 0 items need your accounts: see "Where things stand" below.
+
 **Companion file:** [AUDIT_FINDINGS.md](AUDIT_FINDINGS.md) lists every defect and gap found in the audit. IDs such as `SEC-02` or `LEG-01` in this plan point there.
 
 **How far to trust this:** the code findings were checked against the running app and by a second reviewer. Vendor, pricing and regulatory facts were checked on the web in October 2026 and will drift. Section 13 lists what could not be confirmed. Nothing here is legal advice.
@@ -14,12 +16,32 @@
 
 - Juris today is a well-built demo with nothing behind it. The screens, design system and vocabulary are worth keeping. Sign-in, storage, document reading, analysis, chat and the advocate profiles are all simulated.
 - **It must not go public as it stands.** Anyone can enter as anyone, every account shares one identity and one set of data, the pinned framework version has remote-code-execution advisories, and there is no privacy notice or consent.
-- A **public demo** (clearly labelled, sample data only) is about a week away: finish Phase 0 and deploy it.
+- A **public demo** (clearly labelled, sample data only) is ready to deploy as soon as there is a hosting account.
 - A **public product** is roughly **12 to 16 weeks** of work for two or three engineers, plus a legal track that runs alongside and has its own lead times.
 - **The advocate section is the biggest risk, and it is legal, not technical.** It ranks, rates, prices and "matches" advocates, which collides with Bar Council of India rules on advertising and solicitation. This plan launches without it.
 - **The name needs a decision now.** "Juris" is a common Latin legal word already used by several legal-software products, including two AI legal assistants in India. It is likely to be hard to register and defend on its own. See decision 2.
 - **Running costs start small:** about $45 a month for hosting and data, rising to about $155 a month at launch, plus roughly $0.06 to $0.15 in AI cost per analysed case.
 - Twelve decisions in section 3 are yours to make. Four have long external lead times and should start this week: a registered business, SMS sender registration, a legal opinion, and trade-mark clearance.
+
+### Where things stand (9 October 2026)
+
+**Done**
+
+- Phase 0, in the repository: version control, Next.js 16, deny-by-default route protection, a content security policy, the open-redirect fix, clean sign-out, date-derived deadlines, error screens, the advocate features switched off, the demo banner, tests and a CI workflow.
+- Marathi (the default), Hindi and English across every screen and the sample cases, with a read-aloud button and a Free help screen with tap-to-call numbers. This was planned for Phases 1 and 2 and was brought forward.
+- Of the 206 audit findings, 86 are fixed. The 120 still open include 11 critical and 19 high, and every one of those needs the real backend, the legal pages or a decision from section 3.
+
+**Needs you**
+
+1. **A private repository on GitHub.** The work is committed locally only, so CI has never run.
+2. **A hosting account**, to put the labelled demo online.
+3. **A human read-through of the Marathi and Hindi**, by someone who reads at the level of your users. The text has had two machine passes, not a person's.
+
+**Changed from the plan as first written**
+
+- Next.js 16 was adopted in Phase 0, not Phase 1. The 15 line could not pass the dependency audit and leaves support this month.
+- The launch languages are Marathi, Hindi and English, and the sample content is set in Maharashtra.
+- Passwords are gone. Sign-in asks for an email only until phone sign-in replaces it in Phase 1.
 
 ---
 
@@ -36,11 +58,11 @@
 
 ### What does not exist
 
-No database, no real sign-in, no file storage, no document reading, no AI, no background jobs, no legal pages, no consent capture, no tests, no CI, no error tracking, no environment configuration, and no version control (the folder is a ZIP export, not a git repository).
+No database, no real sign-in, no file storage, no document reading, no AI, no background jobs, no legal pages, no consent capture and no error tracking. (At the time of the audit there were also no tests, no CI, no environment configuration and no version control. Those now exist.)
 
 ### Audit result
 
-206 findings across security, legal and content, correctness, architecture, and UX. Two are already closed by the rename. The 204 open ones are 13 critical, 35 high, 107 medium and 49 low.
+206 findings across security, legal and content, correctness, architecture, and UX. At the audit, 204 were open: 13 critical, 35 high, 107 medium and 49 low. Since then 86 have been fixed, leaving 120 open: 11 critical, 19 high, 69 medium and 21 low. The table below describes the product as audited.
 
 - Seventeen entries, covering eight distinct problems, were reproduced first-hand in the running app or with tooling.
 - A second reviewer re-checked the 68 most serious and rejected none, but lowered the severity of 29, mostly because they describe things a prototype has not built yet and not things that are broken today.
@@ -82,7 +104,7 @@ Each one changes what gets built. The recommendation is what this plan assumes u
 | 7 | **Which model does the analysis** | Start with the most capable model available on the route you choose in decision 6. Step down to a cheaper one only where the evaluation set shows accuracy holds. | A wrong date or missed deadline does real harm. Section 10 gives the cost of each option. | Before Phase 2 |
 | 8 | **How long data is kept** | Delete original uploads 90 days after a case is closed, and everything on account deletion. | Less data held means less exposure. The privacy notice must state a period either way. | Before Phase 1 |
 | 9 | **Human review of AI output** | A qualified advocate reviews every analysis during the closed beta, then a sample plus all police and family matters after launch. | Review is also how you learn where the model fails. | Before Phase 3 |
-| 10 | **Launch scope** | English and Hindi. Three matter types: rent and housing, consumer, employment. | These are the three the prototype already models. A narrow launch can be tested properly. | Before Phase 2 |
+| 10 | **Launch scope** | Marathi, Hindi and English (built). Three matter types: rent and housing, consumer, employment. | These are the three the prototype already models. A narrow launch can be tested properly. | Before Phase 2 |
 | 11 | **Business model** | Free at launch with per-person daily limits. Decide on charging after the beta. | Charging brings a payment gateway, refund policy, GST and consumer-law duties. None of it is needed to prove the product works. | Before Phase 4 |
 | 12 | **Legal counsel** | Engage a practising Indian advocate now for a written opinion and document review. | Almost every legal finding needs sign-off, and the opinion on decision 1 shapes the product. | This week |
 
@@ -130,7 +152,7 @@ Recommended: India only for launch. For people handing over ID papers and family
 - Reminders before a date (SMS or WhatsApp).
 - A legal-aid page that is actually useful: helpline numbers with tap-to-call, the online legal-aid application, state and district routes, and who qualifies.
 - An urgent-matter check at the start: if someone is in danger, arrested, or called by the police today, show emergency and legal-aid numbers before any form.
-- English and Hindi.
+- Marathi, Hindi and English.
 - Privacy notice, terms, disclaimer, grievance contact, and self-service export and deletion of one's own data.
 
 ### Removed before launch, possibly returning later
@@ -222,12 +244,12 @@ Next.js server  (Mumbai)             \
 
 Durations assume two or three engineers. The legal track in section 8 runs in parallel throughout.
 
-### Phase 0 — Make it safe to show (3 to 5 days)
+### Phase 0 — Make it safe to show (done, except three items that need your accounts)
 
 **Goal:** a repository that can be worked on, and a prototype that can be shown publicly as a demo.
 
 - Create a private git repository, flatten the nested folder, add branch protection.
-- Upgrade Next.js to the latest 15.5 patch (15.5.27 at the time of writing) and clear `npm audit` (SEC-05).
+- Upgrade Next.js and clear `npm audit` (SEC-05). Done on Next.js 16.4: the 15.5 line still failed the audit on a bundled dependency. Production dependencies audit clean; five advisories remain in the lint tooling, with no upstream fix, and they do not ship.
 - Fix the open redirect: accept only same-site paths in `next` (SEC-06).
 - Make route protection deny-by-default (SEC-20) and add security headers and a content security policy (SEC-09).
 - Add error and loading screens so a failure is never a blank page or an endless placeholder (ARC-21, UX-01).
@@ -239,11 +261,13 @@ Durations assume two or three engineers. The legal track in section 8 runs in pa
 
 **Done when:** CI is green, there are no critical or high advisories, and the prototype is deployed at a demo address with a visible "Demo — sample data only" banner.
 
+**Still to do:** create the private remote repository and add branch protection, let CI run once, and deploy the demo. Everything else on this list is done and was checked in a production build.
+
 ### Phase 1 — Real accounts and real data (3 to 4 weeks)
 
 **Goal:** a person signs in with their phone and their cases are stored safely in India.
 
-1. Move to Next.js 16. The 15 line is in maintenance and is due to leave support around 21 October 2026.
+1. Move to Next.js 16. Done in Phase 0.
 2. Rewrite the service contracts: no identity parameters, paged lists, a fuller error vocabulary, a job model for analysis, add and delete operations (ARC-02, ARC-10, ARC-11, ARC-26).
 3. Move the services behind the server (ARC-01). Screens call the server; the server calls the data.
 4. Database schema with row-level security, migrations, and automated tests that prove one person cannot read another's case (ARC-05, SEC-11).
@@ -252,8 +276,8 @@ Durations assume two or three engineers. The legal track in section 8 runs in pa
 7. Export and delete for one's own data and account (LEG-16, SEC-17).
 8. Rate limits and per-person daily quotas (ARC-20).
 9. Error tracking and logging with personal data scrubbed (ARC-22).
-10. Move all interface text into message files, ready for Hindi (UX-05, ARC-34).
-11. Fix the accessibility gaps on core screens: a title per page, proper semantics and error messages in the new-case steps, and a way to reach Messages, papers and legal aid from the main navigation (UX-02, UX-03, UX-04, UX-09).
+10. Move all interface text into message files (UX-05, ARC-34). Done, in three languages.
+11. Fix the accessibility gaps on core screens. Done: semantics and focus in the new-case steps, working tabs and dialogs, legal aid in the main navigation. Still to do: a title per page, and error messages tied to each field (UX-02, UX-04).
 
 **Done when:** a real person can sign in by phone, create, rename and delete a text-only case stored in Mumbai, export their data, and delete their account, with cross-account access tests passing in CI.
 
@@ -265,12 +289,12 @@ Durations assume two or three engineers. The legal track in section 8 runs in pa
 2. Background analysis jobs with a progress screen that reflects real stages (ARC-09).
 3. Text extraction with a confidence check, a "retake the photo" path, and a person confirming anything handwritten (ARC-19).
 4. Analysis into the existing section structure, with each fact quoting its source, plus model and prompt version saved (ARC-06, ARC-15).
-5. Show every analysis section the model already defines, including clauses, obligations, sources and questions for an advocate (COR-24, LEG-09).
+5. Show every analysis section the model already defines (COR-24, LEG-09). Done.
 6. Case-grounded chat with streamed replies and a visible choice of which case is being discussed (ARC-10, COR-07).
 7. Guardrails: no statute sections or time limits unless found in a reviewed reference; urgent-matter routing; refusal rules for police and family matters beyond "contact legal aid now" (LEG-22, LEG-27).
-8. An evaluation set of real, anonymised Indian documents in English and Hindi, run automatically whenever a prompt or model changes.
+8. An evaluation set of real, anonymised documents from Maharashtra in Marathi, Hindi and English, run automatically whenever a prompt or model changes.
 9. Human review queue and a minimal internal admin screen (ARC-42).
-10. Hindi interface and Hindi output, with a font that renders Devanagari (LEG-28, UX-06, UX-07).
+10. Marathi and Hindi output from the model, to match the interface, which is already translated (LEG-28). Reading photographed Marathi papers is the hardest part of this phase: see the document-reading row in section 5.
 11. Deadline reminders.
 
 **Done when:** on the evaluation set, date and party extraction meet a target agreed with the reviewing advocate, no analysis contains an unsupported legal reference, and the cost per analysed case is measured.
@@ -461,7 +485,7 @@ If you later charge users, Razorpay's standard fee is 2 percent per domestic tra
 
 | Weeks | Build | Legal and business |
 |---|---|---|
-| 1 | Phase 0. Public demo live. | Engage counsel. Name clearance. Register the business. |
+| 1 | Phase 0 (done). Remote repository, CI, demo online. | Engage counsel. Name clearance. Register the business. |
 | 2 to 5 | Phase 1 | Opinion on advocate model. Draft privacy notice and terms. SMS sender registration (one to two weeks). |
 | 6 to 10 | Phase 2 | Processor agreements. Collect and anonymise evaluation documents. Contract the reviewing advocate. |
 | 11 to 13 | Phase 3, closed beta | Sign-off on published pages and content. |
@@ -485,7 +509,7 @@ A launch on this timeline lands in early 2027, before the new data-protection du
 | Model costs outrun budget | Per-person quotas, global spend cap, alerts, a cheaper model where the evaluation set allows |
 | The name cannot be protected, or is confused with an existing product | Decide before brand spend; the change is cheap in code |
 | A small team cannot cover review and on-call | Staged opening with caps tied to review capacity |
-| The framework version falls out of support mid-build | Move to Next.js 16 at the start of Phase 1 |
+| The Marathi and Hindi text reads wrongly to real users | A read-through by a native speaker at the users' reading level before the beta, then feedback from beta users |
 
 ---
 
@@ -521,7 +545,7 @@ These could not be verified for this plan. Check each before it carries money or
 
 **Engineering**
 
-1. Complete Phase 0 and put the labelled demo online.
+1. Push to a private repository, let CI run, and put the labelled demo online.
 2. Create the staging and production projects in Mumbai.
 3. Write the new service contracts and the database schema with access rules.
 4. Start SMS sender registration as soon as the business is registered.

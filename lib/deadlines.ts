@@ -15,23 +15,22 @@ export function deadlineState(date: string | undefined, today: Date = new Date()
   return "upcoming";
 }
 
-export const DEADLINE_STATE_LABEL: Record<DeadlineState, string> = {
-  none: "No date given",
-  passed: "Date has passed",
-  urgent: "Very soon",
-  soon: "Soon",
-  upcoming: "Later",
-};
-
-/** "Today", "Tomorrow", "9 days left" or "3 days ago". Null when there is no date. */
-export function daysLeftText(date: string | undefined, today: Date = new Date()): string | null {
-  const days = daysUntil(date, today);
-  if (days === null) return null;
-  if (days === 0) return "Today";
-  if (days === 1) return "Tomorrow";
-  if (days > 1) return `${days} days left`;
-  if (days === -1) return "Yesterday";
-  return `${-days} days ago`;
+/**
+ * What to say about how far away a date is: the `deadline.left` or
+ * `deadline.ago` message and the values it needs. Null when there is no date.
+ *
+ * `days` picks the wording (today, tomorrow, N days). `count` is the same
+ * number as text: a number would be shown in the language's own digits, and
+ * every date in the app uses Western digits to match the papers people bring.
+ */
+export function daysLeftParts(
+  date: string | undefined,
+  today: Date = new Date(),
+): { key: "left" | "ago"; values: { days: number; count: string } } | null {
+  const until = daysUntil(date, today);
+  if (until === null) return null;
+  const days = Math.abs(until);
+  return { key: until >= 0 ? "left" : "ago", values: { days, count: String(days) } };
 }
 
 /** The nearest date that has not passed yet, if there is one. */

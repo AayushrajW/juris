@@ -1,47 +1,60 @@
 "use client";
 
 import { CaseCard } from "@/components/cases/CaseCard";
-import { Button } from "@/components/ui/Button";
 import { ActionCard, AppPage } from "@/components/ui/AppKit";
 import { Alert, EmptyState, Skeleton } from "@/components/ui/Display";
 import { useSession } from "@/hooks/useSession";
 import type { CaseRecord } from "@/domain/case";
 import { HELP_HREF } from "@/lib/constants";
-import { daysLeftText, nextDeadline } from "@/lib/deadlines";
-import { formatDate, greetingForNow } from "@/lib/format";
+import { daysLeftParts, nextDeadline } from "@/lib/deadlines";
+import { firstName, formatDate } from "@/lib/format";
 import { analysisService, caseRepository } from "@/services";
-import { Bot, Camera, MessageCircle } from "lucide-react";
+import { Camera, CircleAlert, LifeBuoy, MessageCircle, Mic } from "lucide-react";
+import { useLocale, useTranslations } from "use-intl";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+interface ComingDate {
+  date: string;
+  label: string;
+  caseId: string;
+}
+
 export default function DashboardPage() {
+  const t = useTranslations("dashboard");
+  const common = useTranslations("common");
+  const tDeadline = useTranslations("deadline");
+  const locale = useLocale();
   const { user, ready } = useSession();
   const [cases, setCases] = useState<CaseRecord[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [deadline, setDeadline] = useState<{ label: string; date?: string; caseId: string; title: string } | null>(
-    null,
-  );
+  const [failed, setFailed] = useState(false);
+  const [deadline, setDeadline] = useState<ComingDate | null>(null);
 
   useEffect(() => {
     if (!user) return;
+    let cancelled = false;
     void (async () => {
       const result = await caseRepository.listByCitizen(user.id);
+      if (cancelled) return;
       if (!result.ok) {
-        setError(result.message);
+        setFailed(true);
         return;
       }
       setCases(result.data);
       const analyses = await Promise.all(result.data.map((c) => analysisService.getAnalysis(c.id)));
-      const upcoming: { date: string; label: string; caseId: string; title: string }[] = [];
+      if (cancelled) return;
+      const dated: ComingDate[] = [];
       analyses.forEach((a, i) => {
         if (!a.ok) return;
-        const record = result.data[i];
         a.data.deadlines.forEach((d) => {
-          if (d.date) upcoming.push({ date: d.date, label: d.label, caseId: record.id, title: record.title });
+          if (d.date) dated.push({ date: d.date, label: d.label, caseId: result.data[i].id });
         });
       });
-      setDeadline(nextDeadline(upcoming));
+      setDeadline(nextDeadline(dated));
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
 
   const recent = cases?.slice(0, 3) ?? [];
@@ -55,25 +68,30 @@ export default function DashboardPage() {
     );
   }
 
+  const name = firstName(user?.displayName);
+  const left = deadline ? daysLeftParts(deadline.date) : null;
+
   return (
     <AppPage>
       <h1 className="text-[26px] font-semibold tracking-tight text-navy">
-        {greetingForNow(user?.displayName)}
+        {name ? t("hello", { name }) : t("helloNoName")}
       </h1>
-      <p className="mt-1 text-[16px] text-muted">What do you want to do?</p>
+      <p className="mt-1 text-[17px] text-muted">{t("question")}</p>
 
-      {deadline ? (
+      {deadline && left ? (
         <Link
           href={`/cases/${deadline.caseId}`}
           className="mt-5 flex items-start gap-3 rounded-2xl bg-pastel-orange p-4"
         >
-          <span className="mt-0.5 text-[15px] font-bold text-warning">!</span>
+          <CircleAlert className="mt-0.5 size-6 shrink-0 text-warning" strokeWidth={2} aria-hidden />
           <span className="min-w-0">
-            <span className="block text-[16px] font-semibold text-navy">A date is coming</span>
-            <span className="mt-1 block text-[14px] leading-snug text-ink/85">
-              {deadline.label}
-              {deadline.date ? ` — ${formatDate(deadline.date)} (${daysLeftText(deadline.date)})` : ""}. Tap to
-              see what to do.
+            <span className="block text-[17px] font-semibold text-navy">{t("dateComing")}</span>
+            <span className="mt-1 block text-[15px] leading-snug text-ink/90">
+              {t("dateComingBody", {
+                label: deadline.label,
+                date: formatDate(deadline.date, locale) ?? "",
+                left: tDeadline(left.key, left.values),
+              })}
             </span>
           </span>
         </Link>
@@ -83,59 +101,62 @@ export default function DashboardPage() {
         <ActionCard
           tone="blue"
           href="/cases/new?mode=document"
-          title="Photo of a paper"
-          description="We read it in simple words."
-          cta="Upload"
-          icon={<Camera className="size-6" strokeWidth={1.75} />}
+          title={t("photoTitle")}
+          description={t("photoBody")}
+          cta={t("photoCta")}
+          icon={<Camera className="size-7" strokeWidth={1.75} />}
         />
         <ActionCard
           tone="green"
           href="/cases/new?mode=description"
-          title="Tell your story"
-          description="Say what happened. We show next steps."
-          cta="Start"
-          icon={<MessageCircle className="size-6" strokeWidth={1.75} />}
+          title={t("storyTitle")}
+          description={t("storyBody")}
+          cta={t("storyCta")}
+          icon={<Mic className="size-7" strokeWidth={1.75} />}
         />
         <ActionCard
           tone="orange"
           href="/assistant"
-          title="Ask a question"
-          description="A helper answers in easy language."
-          cta="Ask"
-          icon={<Bot className="size-6" strokeWidth={1.75} />}
+          title={t("askTitle")}
+          description={t("askBody")}
+          cta={t("askCta")}
+          icon={<MessageCircle className="size-7" strokeWidth={1.75} />}
         />
       </div>
 
-      <p className="mt-4 text-center text-[15px]">
-        <Link href={HELP_HREF} className="inline-flex min-h-11 items-center font-semibold text-primary">
-          Need a person to talk to? Find help →
-        </Link>
-      </p>
+      <Link
+        href={HELP_HREF}
+        className="mt-4 flex min-h-14 items-center justify-center gap-2 rounded-2xl border border-primary/30 bg-surface px-4 text-center text-[16px] font-semibold text-primary"
+      >
+        <LifeBuoy className="size-5 shrink-0" strokeWidth={1.75} aria-hidden />
+        {t("needPerson")}
+      </Link>
 
-      {error ? (
+      {failed ? (
         <div className="mt-6">
-          <Alert tone="danger" title="Could not load">
-            {error}
-          </Alert>
+          <Alert tone="danger" title={common("couldNotLoad")} />
         </div>
       ) : null}
 
       <section className="mt-8">
         <div className="flex items-center justify-between">
-          <h2 className="text-[18px] font-semibold text-navy">Your problems</h2>
-          <Link href="/cases" className="text-[15px] font-semibold text-primary">
-            See all
+          <h2 className="text-[19px] font-semibold text-navy">{t("yourProblems")}</h2>
+          <Link href="/cases" className="inline-flex min-h-11 items-center text-[16px] font-semibold text-primary">
+            {t("seeAll")}
           </Link>
         </div>
-        <div className="mt-3 grid gap-3">
-          {cases === null && !error ? <Skeleton className="h-16" /> : null}
+        <div className="mt-2 grid gap-3">
+          {cases === null && !failed ? <Skeleton className="h-16" /> : null}
           {cases && recent.length === 0 ? (
             <EmptyState
-              title="Nothing here yet"
-              body="Start with a photo of a paper, or tell your story."
+              title={t("emptyTitle")}
+              body={t("emptyBody")}
               action={
-                <Link href="/cases/new">
-                  <Button size="lg">Start</Button>
+                <Link
+                  href="/cases/new"
+                  className="inline-flex min-h-14 items-center rounded-xl bg-primary px-6 text-[17px] font-semibold text-white"
+                >
+                  {t("emptyCta")}
                 </Link>
               }
             />

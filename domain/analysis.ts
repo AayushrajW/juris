@@ -85,9 +85,3 @@ export interface CaseAnalysis {
   nextSteps: NextStepItem[];
   questionsForLawyer: string[];
 }
-
-export const ACTOR_LABEL: Record<ObligationItem["actor"], string> = {
-  you: "You",
-  other_party: "The other party",
-  unclear: "Unclear who",
-};

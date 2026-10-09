@@ -1,35 +1,31 @@
-const dateFormatter = new Intl.DateTimeFormat("en-IN", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
+import type { Locale } from "@/i18n/config";
 
-const dateTimeFormatter = new Intl.DateTimeFormat("en-IN", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-});
+/**
+ * Month names are written out here instead of taken from the browser. The
+ * server and each phone carry different built-in language data, so the same
+ * date could otherwise read differently in two places.
+ */
+const MONTHS: Record<Locale, readonly string[]> = {
+  mr: ["जानेवारी", "फेब्रुवारी", "मार्च", "एप्रिल", "मे", "जून", "जुलै", "ऑगस्ट", "सप्टेंबर", "ऑक्टोबर", "नोव्हेंबर", "डिसेंबर"],
+  hi: ["जनवरी", "फ़रवरी", "मार्च", "अप्रैल", "मई", "जून", "जुलाई", "अगस्त", "सितंबर", "अक्टूबर", "नवंबर", "दिसंबर"],
+  en: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+};
 
 /** A date-only string ("2026-08-27") means that calendar day here, not midnight UTC. */
 function parseDate(iso: string): Date {
-  const day = /^(d{4})-(d{2})-(d{2})$/.exec(iso);
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   return day ? new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])) : new Date(iso);
 }
 
-export function formatDate(iso?: string): string {
-  if (!iso) return "Date not known";
+/**
+ * "27 August 2026" in the reader's language, with Western digits as printed
+ * on the papers people bring. Null when there is no readable date.
+ */
+export function formatDate(iso: string | undefined, locale: Locale): string | null {
+  if (!iso) return null;
   const date = parseDate(iso);
-  if (Number.isNaN(date.getTime())) return "Date not known";
-  return dateFormatter.format(date);
-}
-
-export function formatDateTime(iso?: string): string {
-  if (!iso) return "Time not known";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "Time not known";
-  return dateTimeFormatter.format(date);
+  if (Number.isNaN(date.getTime())) return null;
+  return `${date.getDate()} ${MONTHS[locale][date.getMonth()]} ${date.getFullYear()}`;
 }
 
 export function formatFileSize(bytes: number): string {
@@ -39,8 +35,19 @@ export function formatFileSize(bytes: number): string {
 }
 
 export function firstName(displayName?: string | null): string {
-  if (!displayName) return "there";
-  return displayName.trim().split(/\s+/)[0] ?? displayName;
+  return displayName?.trim().split(/\s+/)[0] ?? "";
+}
+
+/** The first letter as a reader sees it. In Devanagari that can be several code points. */
+function firstLetter(word: string): string {
+  if (typeof Intl.Segmenter === "function") {
+    const first = new Intl.Segmenter(undefined, { granularity: "grapheme" })
+      .segment(word)
+      [Symbol.iterator]()
+      .next();
+    return first.done ? "" : first.value.segment;
+  }
+  return Array.from(word)[0] ?? "";
 }
 
 export function initials(displayName?: string | null): string {
@@ -51,29 +58,8 @@ export function initials(displayName?: string | null): string {
     .split(/\s+/)
     .filter((part) => part && !/^adv\.?$/i.test(part));
   if (parts.length === 0) return "U";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
-}
-
-export function greetingForNow(displayName?: string | null): string {
-  const hour = new Date().getHours();
-  const part = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-  return `${part}, ${firstName(displayName)}!`;
-}
-
-export function formatRelative(iso?: string): string {
-  if (!iso) return "Updated recently";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "Updated recently";
-  const diffMs = Date.now() - date.getTime();
-  const minutes = Math.max(1, Math.round(diffMs / 60000));
-  if (minutes < 60) return `Updated ${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return hours === 1 ? "Updated 1 hour ago" : `Updated ${hours} hours ago`;
-  const days = Math.round(hours / 24);
-  if (days === 1) return "Updated yesterday";
-  if (days < 14) return `Updated ${days} days ago`;
-  return `Updated ${formatDate(iso)}`;
+  if (parts.length === 1) return firstLetter(parts[0]).toUpperCase();
+  return `${firstLetter(parts[0])}${firstLetter(parts[parts.length - 1])}`.toUpperCase();
 }
 
 export function formatInr(amount?: number): string {
@@ -83,11 +69,6 @@ export function formatInr(amount?: number): string {
     currency: "INR",
     maximumFractionDigits: 0,
   }).format(amount);
-}
-
-export function publicCaseRef(id: string): string {
-  const hash = [...id].reduce((n, ch) => n + ch.charCodeAt(0), 0);
-  return `NS-${String(1000 + (hash % 9000)).padStart(4, "0")}`;
 }
 
 /** Whole calendar days from `today` to the date. Negative when the date has passed. */

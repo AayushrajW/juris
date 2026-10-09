@@ -1,8 +1,11 @@
-import { CASE_STATUS_UI } from "@/lib/caseUi";
+"use client";
+
+import { CASE_STATUS_TONE } from "@/lib/caseUi";
 import { Badge } from "@/components/ui/Display";
 import type { CaseStatus } from "@/domain/case";
+import { useTranslations } from "use-intl";
 
 export function CaseStatusBadge({ status }: { status: CaseStatus }) {
-  const ui = CASE_STATUS_UI[status];
-  return <Badge tone={ui.tone}>{ui.label}</Badge>;
+  const t = useTranslations("status");
+  return <Badge tone={CASE_STATUS_TONE[status]}>{t(status)}</Badge>;
 }

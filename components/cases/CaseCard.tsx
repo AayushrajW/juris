@@ -1,8 +1,11 @@
+"use client";
+
 import { CaseStatusBadge } from "@/components/cases/CaseStatusBadge";
 import type { CaseRecord } from "@/domain/case";
 import { Briefcase, FileText, Landmark, Receipt, Shield, Users } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
+import { useTranslations } from "use-intl";
 
 const icons = {
   tenancy: FileText,
@@ -30,6 +33,7 @@ export function CaseCard({ record }: { record: CaseRecord }) {
   const href =
     record.status === "processing" ? `/cases/${record.id}/processing` : `/cases/${record.id}`;
   const Icon = icons[record.category];
+  const t = useTranslations("cases");
   return (
     <Link
       href={href}
@@ -45,7 +49,7 @@ export function CaseCard({ record }: { record: CaseRecord }) {
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-[16px] font-semibold leading-snug text-navy">{record.title}</span>
-        <span className="mt-0.5 block text-[13px] text-muted">Tap to open</span>
+        <span className="mt-0.5 block text-[14px] text-muted">{t("tapToOpen")}</span>
       </span>
       <CaseStatusBadge status={record.status} />
     </Link>

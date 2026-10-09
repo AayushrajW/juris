@@ -1,17 +1,29 @@
-import { generateDemoAnalysis } from "@/data/mocks/generateAnalysis";
+import { isDemoCase } from "@/data/mocks/locales";
 import type { CaseId, CaseRecord } from "@/domain/case";
 import type { CaseRepository, CreateCaseInput, DocumentService } from "@/services/types";
+import { demoText } from "./locale";
 import { loadStore, updateStore } from "./store";
 
 function nowIso() {
   return new Date().toISOString();
 }
 
+function newId(prefix: string) {
+  return `${prefix}-${crypto.randomUUID()}`;
+}
+
+/** Sample cases show their title in the language of the page. */
+function localized(record: CaseRecord): CaseRecord {
+  const title = demoText().caseTitles[record.id];
+  return title ? { ...record, title } : record;
+}
+
 export const mockCaseRepository: CaseRepository = {
   async listByCitizen(citizenId) {
     const cases = loadStore()
       .cases.filter((c) => c.citizenId === citizenId)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .map(localized);
     return { ok: true, data: cases };
   },
   async getById(caseId: CaseId) {
@@ -19,10 +31,10 @@ export const mockCaseRepository: CaseRepository = {
     if (!found) {
       return { ok: false, code: "not_found", message: "This case is not in the demo file." };
     }
-    return { ok: true, data: found };
+    return { ok: true, data: localized(found) };
   },
   async createDraft(citizenId, input: CreateCaseInput) {
-    const id = `case-${Date.now()}`;
+    const id = newId("case");
     const createdAt = nowIso();
     const record: CaseRecord = {
       id,
@@ -47,7 +59,8 @@ export const mockCaseRepository: CaseRepository = {
               mimeType: input.document.mimeType,
               byteSize: input.document.byteSize,
               kind: input.document.kind,
-              previewUrl: input.document.previewUrl,
+              // A blob: link dies with the page, so it is never stored.
+              previewUrl: undefined,
               uploadStatus: "local_only" as const,
             },
           ]
@@ -55,14 +68,7 @@ export const mockCaseRepository: CaseRepository = {
       const descriptions = input.description
         ? [...s.descriptions, { ...input.description, caseId: id }]
         : s.descriptions;
-      const analysis = generateDemoAnalysis(record, input.description?.narrative);
-      return {
-        ...s,
-        cases: [record, ...s.cases],
-        documents,
-        descriptions,
-        analyses: { ...s.analyses, [id]: analysis },
-      };
+      return { ...s, cases: [record, ...s.cases], documents, descriptions };
     });
     return { ok: true, data: record };
   },
@@ -79,7 +85,7 @@ export const mockCaseRepository: CaseRepository = {
     if (!updated) {
       return { ok: false, code: "not_found", message: "This case is not in the demo file." };
     }
-    return { ok: true, data: updated };
+    return { ok: true, data: localized(updated) };
   },
 };
 
@@ -89,6 +95,10 @@ export const mockDocumentService: DocumentService = {
     return { ok: true, data: doc };
   },
   async getDescription(caseId) {
+    if (isDemoCase(caseId)) {
+      const sample = demoText().descriptions[caseId];
+      return { ok: true, data: sample ? { ...sample, caseId } : null };
+    }
     const desc = loadStore().descriptions.find((d) => d.caseId === caseId) ?? null;
     return { ok: true, data: desc };
   },

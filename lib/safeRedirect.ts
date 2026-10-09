@@ -1,5 +1,15 @@
 const PLACEHOLDER_ORIGIN = "http://juris.invalid";
 
+/** True only for an https link. Keeps "javascript:" and other schemes out of href. */
+export function isHttpsUrl(url: string | undefined): url is string {
+  if (!url) return false;
+  try {
+    return new URL(url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Returns `next` only when it is a path on this site. Anything that could send
  * the browser elsewhere ("https://…", "//host", "/\host", "javascript:…")

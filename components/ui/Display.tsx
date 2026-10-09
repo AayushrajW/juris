@@ -1,5 +1,8 @@
+"use client";
+
 import { cn } from "@/lib/cn";
 import { APP_NAME } from "@/lib/constants";
+import { useTranslations } from "use-intl";
 import type { HTMLAttributes, ReactNode } from "react";
 
 type Tone = "info" | "success" | "warning" | "urgent" | "demo" | "ai" | "neutral";
@@ -127,6 +130,7 @@ export function Skeleton({ className }: { className?: string }) {
 }
 
 export function DisclaimerBar({ compact = false }: { compact?: boolean }) {
+  const t = useTranslations("common");
   return (
     <p
       className={cn(
@@ -134,16 +138,17 @@ export function DisclaimerBar({ compact = false }: { compact?: boolean }) {
         compact ? "px-4 py-2 text-[13px]" : "px-4 py-2.5 text-sm",
       )}
     >
-      {APP_NAME} explains papers in simple words. It is not a lawyer.
+      {t("disclaimer", { app: APP_NAME })}
     </p>
   );
 }
 
 /** Shown on every page while the app runs on sample data. */
 export function DemoBanner() {
+  const t = useTranslations("common");
   return (
     <p role="note" className="bg-navy px-4 py-1.5 text-center text-[13px] font-medium text-white">
-      Demo — sample data only. Do not enter real personal details.
+      {t("demoBanner")}
     </p>
   );
 }

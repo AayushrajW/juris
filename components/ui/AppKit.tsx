@@ -2,19 +2,41 @@
 
 import { cn } from "@/lib/cn";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 
+/** `idBase` ties each tab to its TabPanel. Use the same value on both. */
 export function Tabs({
   items,
   value,
   onChange,
   className,
+  idBase = "tabs",
 }: {
   items: { id: string; label: string }[];
   value: string;
   onChange: (id: string) => void;
   className?: string;
+  idBase?: string;
 }) {
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    const index = items.findIndex((item) => item.id === value);
+    const target =
+      e.key === "ArrowRight"
+        ? (index + 1) % items.length
+        : e.key === "ArrowLeft"
+          ? (index - 1 + items.length) % items.length
+          : e.key === "Home"
+            ? 0
+            : e.key === "End"
+              ? items.length - 1
+              : -1;
+    if (target < 0) return;
+    e.preventDefault();
+    const next = items[target];
+    onChange(next.id);
+    document.getElementById(`${idBase}-tab-${next.id}`)?.focus();
+  }
+
   return (
     <div
       className={cn(
@@ -22,18 +44,22 @@ export function Tabs({
         className,
       )}
       role="tablist"
+      onKeyDown={onKeyDown}
     >
       {items.map((item) => {
         const active = item.id === value;
         return (
           <button
             key={item.id}
+            id={`${idBase}-tab-${item.id}`}
             type="button"
             role="tab"
             aria-selected={active}
+            aria-controls={`${idBase}-panel-${item.id}`}
+            tabIndex={active ? 0 : -1}
             onClick={() => onChange(item.id)}
             className={cn(
-              "shrink-0 border-b-[3px] px-3 py-3 text-[15px] font-semibold",
+              "min-h-12 shrink-0 border-b-[3px] px-3 py-3 text-[16px] font-semibold",
               active ? "border-primary text-primary" : "border-transparent text-muted hover:text-navy",
             )}
           >
@@ -41,6 +67,34 @@ export function Tabs({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+export function TabPanel({
+  idBase = "tabs",
+  id,
+  active,
+  className,
+  children,
+}: {
+  idBase?: string;
+  id: string;
+  active: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  // Inactive panels stay in the page, hidden, so each tab always has a panel to point at.
+  return (
+    <div
+      id={`${idBase}-panel-${id}`}
+      role="tabpanel"
+      aria-labelledby={`${idBase}-tab-${id}`}
+      tabIndex={0}
+      hidden={!active}
+      className={className}
+    >
+      {children}
     </div>
   );
 }

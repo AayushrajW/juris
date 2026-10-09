@@ -4,21 +4,22 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Display";
 import { Input } from "@/components/ui/Field";
 import { useSession } from "@/hooks/useSession";
-import { DEMO_AUTH_NOTE } from "@/lib/constants";
 import { env } from "@/lib/env";
 import { safeNextPath } from "@/lib/safeRedirect";
 import { authService } from "@/services";
+import { useTranslations } from "use-intl";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
 
 function SignInForm() {
+  const t = useTranslations("auth");
+  const common = useTranslations("common");
   const router = useRouter();
   const search = useSearchParams();
   const next = safeNextPath(search.get("next"));
   const { refresh } = useSession();
   const [email, setEmail] = useState(env.demoMode ? "meera.demo@juris.example" : "");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -26,10 +27,10 @@ function SignInForm() {
     e.preventDefault();
     setPending(true);
     setError(null);
-    const result = await authService.signIn({ email, password });
+    const result = await authService.signIn({ email });
     setPending(false);
     if (!result.ok) {
-      setError(result.message);
+      setError(t("failed"));
       return;
     }
     await refresh();
@@ -39,45 +40,35 @@ function SignInForm() {
 
   return (
     <Card>
-      <h1 className="text-[22px] font-semibold text-navy">Sign in</h1>
-      <p className="mt-2 text-sm text-demo">{DEMO_AUTH_NOTE}</p>
+      <h1 className="text-[24px] font-semibold text-navy">{t("signInTitle")}</h1>
+      {env.demoMode ? <p className="mt-2 text-[15px] text-muted">{t("demoNote")}</p> : null}
       <form className="mt-6 space-y-4" onSubmit={submit}>
         <Input
           id="email"
-          label="Email"
+          label={t("email")}
           type="email"
-          autoComplete="username"
+          inputMode="email"
+          autoComplete="email"
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
-        <Input
-          id="password"
-          label="Password"
-          type="password"
-          autoComplete="current-password"
-          hint="Accepted but not checked against a server."
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
         {error ? (
-          <p className="text-sm text-danger" role="alert">
+          <p className="text-[15px] text-danger" role="alert">
             {error}
           </p>
         ) : null}
-        <Button type="submit" className="w-full" disabled={pending}>
-          {pending ? "Opening demo…" : "Continue"}
+        <Button type="submit" size="lg" className="w-full" disabled={pending}>
+          {pending ? t("opening") : common("continue")}
         </Button>
       </form>
-      <p className="mt-4 text-sm">
-        <Link className="font-medium text-navy underline-offset-2 hover:underline" href="/forgot-password">
-          Forgot password?
-        </Link>
-      </p>
-      <p className="mt-2 text-sm text-demo">
-        New here?{" "}
-        <Link className="font-medium text-navy underline-offset-2 hover:underline" href="/sign-up">
-          Create a demo account
+      <p className="mt-5 text-[15px] text-muted">
+        {t("newHere")}{" "}
+        <Link
+          className="font-semibold text-navy underline underline-offset-2"
+          href={search.get("next") ? `/sign-up?next=${encodeURIComponent(next)}` : "/sign-up"}
+        >
+          {t("createAccount")}
         </Link>
       </p>
     </Card>
