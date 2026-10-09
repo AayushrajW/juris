@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="0 0 800 500" role="img" aria-labelledby="t">
+  <title id="t">Demo washing machine warranty card</title>
+  <rect width="800" height="500" fill="#0b1f3a"/>
+  <rect x="24" y="24" width="752" height="452" fill="#f7f5f2"/>
+  <text x="400" y="80" text-anchor="middle" font-family="sans-serif" font-size="22" fill="#0b1f3a">SAGAR APPLIANCES  WARRANTY CARD</text>
+  <text x="400" y="110" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#b45309">DEMO IMAGE  NOT A REAL PRODUCT CARD</text>
+  <text x="60" y="180" font-family="sans-serif" font-size="16" fill="#1c2430">Model: SG-FL70  |  Purchase: 3 March 2025</text>
+  <text x="60" y="220" font-family="sans-serif" font-size="16" fill="#1c2430">Covered: manufacturing defects for 24 months from date of purchase.</text>
+  <text x="60" y="260" font-family="sans-serif" font-size="16" fill="#1c2430">Not covered: misuse, unauthorised repair, or installation defects.</text>
+  <text x="60" y="340" font-family="sans-serif" font-size="14" fill="#5c6570">Authorised service stamp (sample): Pune Centre 14</text>
+</svg>
