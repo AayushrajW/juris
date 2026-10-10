@@ -6,6 +6,7 @@ export default defineConfig({
     alias: { "@": fileURLToPath(new URL(".", import.meta.url)) },
   },
   test: {
-    include: ["tests/**/*.test.ts"],
+    // The database tests are slow and have their own config: vitest.db.config.ts.
+    include: ["tests/*.test.ts"],
   },
 });
