@@ -19,7 +19,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Sign in with any email. A sample person (`Meera Iyer`) and three sample cases load in the browser.
+Open [http://localhost:3000](http://localhost:3000). Sign in with any mobile number: no message is sent, and the code is shown on the screen. A sample person (`Meera Iyer`) and three sample cases load in the browser.
 
 ## Languages
 
@@ -55,7 +55,8 @@ A value other than `true` or `false` fails the build.
 | `npm run typecheck` | TypeScript check |
 | `npm run lint` | ESLint |
 | `npm test` | Unit tests |
-| `npm run check` | Type-check, lint and tests together |
+| `npm run test:db` | Database tests: the schema and its row-level security, on a real Postgres inside Node |
+| `npm run check` | Type-check, lint and both sets of tests together |
 | `npm run format` | Format with Prettier |
 
 CI (`.github/workflows/ci.yml`) runs type-check, lint, tests, build and a dependency audit on every pull request.
@@ -67,6 +68,7 @@ CI (`.github/workflows/ci.yml`) runs type-check, lint, tests, build and a depend
 - `domain/` — typed models.
 - `services/` — what the screens may ask for. `services/types.ts` is the contract: no call takes a user id, lists come in pages, failures are codes the screens translate, and reading a problem is a background job. `services/mock/` is the current, browser-only implementation.
 - `data/mocks/` — sample people, cases and explanations.
+- `db/` — the Postgres schema and its row-level security, for the backend to come. The app does not use it yet. See `db/README.md`.
 - `messages/` — interface text, one file per language.
 - `lib/` — helpers. `lib/helplines.ts` holds the official phone numbers on the Free help screen; re-check them every three months.
 - `tests/` — unit tests. `tests/contracts.test.ts` checks everything the service contract promises; a real backend must pass the same suite.

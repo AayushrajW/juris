@@ -1,5 +1,5 @@
 import { cn } from "@/lib/cn";
-import type { InputHTMLAttributes, Ref, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import type { InputHTMLAttributes, ReactNode, Ref, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 
 interface FieldProps {
   label: string;
@@ -14,24 +14,41 @@ export function Input({
   error,
   id,
   className,
+  before,
+  describedBy,
   ...props
-}: FieldProps & InputHTMLAttributes<HTMLInputElement> & { ref?: Ref<HTMLInputElement> }) {
+}: FieldProps &
+  InputHTMLAttributes<HTMLInputElement> & {
+    ref?: Ref<HTMLInputElement>;
+    /** Shown inside the box before what is typed, such as a country code. Not part of the value. */
+    before?: ReactNode;
+    /** The id of text elsewhere on the page that explains this field, read out with it. */
+    describedBy?: string;
+  }) {
+  const described = [error ? `${id}-error` : hint ? `${id}-hint` : null, describedBy].filter(Boolean).join(" ");
   return (
     <div className="space-y-1.5">
       <label htmlFor={id} className="block text-sm font-medium text-ink">
         {label}
       </label>
-      <input
-        id={id}
-        aria-invalid={Boolean(error)}
-        aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
-        className={cn(
-          "min-h-11 w-full rounded-[12px] border bg-surface px-3 text-base text-ink shadow-none outline-none transition-colors placeholder:text-muted",
-          error ? "border-danger" : "border-border focus:border-navy",
-          className,
-        )}
-        {...props}
-      />
+      <div className="relative">
+        {before ? (
+          <span aria-hidden className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-ink/70">
+            {before}
+          </span>
+        ) : null}
+        <input
+          id={id}
+          aria-invalid={Boolean(error)}
+          aria-describedby={described || undefined}
+          className={cn(
+            "min-h-11 w-full rounded-[12px] border bg-surface px-3 text-base text-ink shadow-none outline-none transition-colors placeholder:text-muted",
+            error ? "border-danger" : "border-border focus:border-navy",
+            className,
+          )}
+          {...props}
+        />
+      </div>
       {hint && !error ? (
         <p id={`${id}-hint`} className="text-sm text-demo">
           {hint}

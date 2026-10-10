@@ -2,7 +2,6 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   FOREIGN_KEY_VIOLATION,
   PERMISSION_DENIED,
-  UNIQUE_VIOLATION,
   asAnon,
   asAuthenticatedWithClaims,
   asService,
@@ -17,7 +16,6 @@ import {
   makeDocument,
   makeJob,
   makeMessage,
-  makeProfile,
   makeStory,
   makeWorld,
   newId,
@@ -97,7 +95,8 @@ const TABLES: TableSpec[] = [
     personReads: true,
     personUpdates: { column: "display_name", value: "Changed" },
     personDeletes: true,
-    personInserts: (tx, userId) => makeProfile(tx, userId),
+    // Only the server makes a profile, with the number the sign-in code went to.
+    personInserts: null,
     hasCase: false,
   },
   {
@@ -309,8 +308,10 @@ describe.each(TABLES)("$table", (spec) => {
         const caseOfA = spec.table === "case_stories" ? await secondCase(a) : a.caseId;
         const before = await countAll(db, table, "case_id = $1", [caseOfA]);
 
+        // The policy looks at whose case it is before anything else does. (The
+        // foreign key would stop it too: see "ownership is held by foreign keys".)
         const r = await refusal(asUser(db, b.userId, (tx) => insert(tx, b.userId, caseOfA)));
-        expect(r.code, r.message).toBe(FOREIGN_KEY_VIOLATION);
+        expect(isPolicyRefusal(r), r.message).toBe(true);
         expect(await countAll(db, table, "case_id = $1", [caseOfA])).toBe(before);
 
         // The owner attaches the same kind of row to that case.
@@ -332,11 +333,18 @@ describe.each(TABLES)("$table", (spec) => {
         },
         audit_log: { action: "case.read", subject_type: "case" },
         usage_counters: { day: "2026-10-11", kind: "analysis", count: 0 },
+        // A profile under a new id of one's own, or under somebody else's: neither is a person's to make.
+        profiles: { phone: newPhone() },
       };
-      for (const owner of [b.userId, a.userId]) {
-        const r = await refusal(
-          asUser(db, b.userId, (tx) => insertRow(tx, table, { ...values[table], user_id: owner })),
-        );
+      // A person who is signed in but has no profile yet: the one who would most want to make one.
+      const newcomer = newId();
+      for (const [asking, owner] of [
+        [b.userId, b.userId],
+        [b.userId, a.userId],
+        [newcomer, newcomer],
+      ]) {
+        const row = { ...values[table], [spec.ownerColumn]: owner };
+        const r = await refusal(asUser(db, asking, (tx) => insertRow(tx, table, row)));
         expect(isGrantRefusal(r), r.message).toBe(true);
       }
       expect(await countAll(db, table)).toBe(before);
@@ -514,12 +522,32 @@ describe.each(TABLES)("$table", (spec) => {
 // ---------------------------------------------------------------------------
 
 describe("ownership is held by foreign keys, not only by policies", () => {
-  it("case_stories: a story for a case that already has one is refused before anything is attached", async () => {
-    // A's first case has a story, so this fails on the primary key; either way nothing of B's lands on A's case.
+  it("case_stories: a story for somebody else's case is refused by the policy, before anything is attached", async () => {
     const r = await refusal(asUser(db, b.userId, (tx) => makeStory(tx, b.userId, a.caseId)));
-    expect([UNIQUE_VIOLATION, FOREIGN_KEY_VIOLATION], r.message).toContain(r.code);
+    expect(isPolicyRefusal(r), r.message).toBe(true);
     expect((await readAsService(db, "case_stories", "case_id = $1", [a.caseId]))?.user_id).toBe(a.userId);
   });
+
+  // If the refusal differed, pointing at a case id would tell a stranger whether
+  // that case has a story yet, or a reading under way.
+  it.each([
+    ["case_stories", (tx: Tx, userId: string, caseId: string) => makeStory(tx, userId, caseId)],
+    ["documents", (tx: Tx, userId: string, caseId: string) => makeDocument(tx, userId, caseId)],
+    ["analysis_jobs", (tx: Tx, userId: string, caseId: string) => makeJob(tx, userId, caseId)],
+    ["chat_messages", (tx: Tx, userId: string, caseId: string) => makeMessage(tx, userId, caseId)],
+  ] as const)(
+    "%s: pointing at a case that is not yours gets one answer, whatever that case holds",
+    async (_table, insert) => {
+      // a.caseId has a story, a paper, a reading and a question. This one is bare. The third does not exist.
+      const bare = await secondCase(a);
+      const refusals = [];
+      for (const caseId of [a.caseId, bare, newId()]) {
+        refusals.push(await refusal(asUser(db, b.userId, (tx) => insert(tx, b.userId, caseId))));
+      }
+      for (const r of refusals) expect(isPolicyRefusal(r), r.message).toBe(true);
+      expect(new Set(refusals.map((r) => r.code)).size).toBe(1);
+    },
+  );
 
   const children: [string, (tx: Tx, userId: string, caseId: string) => Promise<Row>][] = [
     ["case_stories", (tx, userId, caseId) => makeStory(tx, userId, caseId)],
@@ -801,6 +829,19 @@ describe("who a request is for", () => {
     for (const claims of ["not json", '{"sub":"not-a-uuid"}', `{"sub":"${a.userId}' or '1'='1"}`]) {
       await refusal(asAuthenticatedWithClaims(db, claims, (tx) => tx.query("select * from app.cases")));
     }
+  });
+
+  // Row-level security stops a query that forgets to say whose rows it wants.
+  // It does not stop SQL that somebody else wrote: such SQL can simply declare
+  // itself to be another person. This test is here so that nobody reads the
+  // policies as protection against SQL put together from what a person typed.
+  // See db/README.md, "What this does not protect against".
+  it("the claims can be replaced by SQL running in the request, which is why no SQL is ever built from input", async () => {
+    const seen = await asUser(db, b.userId, async (tx) => {
+      await tx.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: a.userId })]);
+      return tx.query<Row>("select id from app.cases");
+    });
+    expect(seen.rows.map((row) => row.id)).toEqual([a.caseId]);
   });
 
   it("app.user_id(): the claims end with the transaction, so the next request does not inherit a person", async () => {

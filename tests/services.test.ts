@@ -74,6 +74,26 @@ describe("what every service does, whatever is behind it", () => {
     expect(ended).toBe(1);
   });
 
+  it("never passes a sign-in code to the screen outside the demo, whatever the service returns", async () => {
+    const demo = await authService.requestCode("+919811100010");
+    expect(demo.ok && typeof demo.data.demoCode).toBe("string");
+
+    vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", "false");
+    vi.resetModules();
+    try {
+      const live = await import("@/services");
+      const sent = await live.authService.requestCode("+919811100011");
+      expect(sent.ok).toBe(true);
+      if (sent.ok) {
+        expect(sent.data.challengeId.length).toBeGreaterThan(0);
+        expect(sent.data.demoCode).toBeUndefined();
+      }
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
   it("does not report other failures as the end of the session", async () => {
     await signIn();
     setFault("rate_limited");

@@ -269,8 +269,10 @@ export interface World {
 export async function makeWorld(db: Db): Promise<World> {
   const userId = newId();
 
+  // The server makes the profile, once the sign-in code has been checked. A person cannot.
+  const profile = await asService(db, (tx) => makeProfile(tx, userId, { display_name: "Asha", preferred_language: "mr" }));
+
   const own = await asUser(db, userId, async (tx) => {
-    const profile = await makeProfile(tx, userId, { display_name: "Asha", preferred_language: "mr" });
     const consent = await makeConsent(tx, userId);
     const made = await makeCaseWithStory(tx, userId);
     const caseId = made.case.id as string;

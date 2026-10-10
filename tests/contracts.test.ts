@@ -261,6 +261,8 @@ function describeContracts(name: string, services: Services, backstage: Backstag
           expect(challenge.challengeId.length).toBeGreaterThan(0);
           expect(challenge.resendAfterSeconds).toBeGreaterThan(0);
           expect(Date.parse(challenge.expiresAt)).toBeGreaterThan(Date.now());
+          // A code is short-lived: minutes, not hours.
+          expect(Date.parse(challenge.expiresAt) - Date.now()).toBeLessThanOrEqual(15 * 60 * 1000);
           // Asking for a code signs nobody in.
           expect(await current()).toBeNull();
         },
@@ -325,12 +327,32 @@ function describeContracts(name: string, services: Services, backstage: Backstag
         expect(await current()).toBeNull();
       });
 
-      it("a code works once", async () => {
+      it("a code works once, even for the person it just signed in", async () => {
+        const { challenge, code } = await codeSentTo(ASHA.phone);
+        const user = unwrap(await auth.verifyCode(challenge.challengeId, code));
+        // Straight away, still signed in: somebody who saw the code cannot use it a second time.
+        expectFailure(await auth.verifyCode(challenge.challengeId, code), "invalid", "code", "code_expired");
+        expect(await current()).toEqual(user);
+      });
+
+      it("a used code does not open the account again after signing out", async () => {
         const { challenge, code } = await codeSentTo(ASHA.phone);
         unwrap(await auth.verifyCode(challenge.challengeId, code));
         unwrap(await auth.signOut());
         expectFailure(await auth.verifyCode(challenge.challengeId, code), "invalid", "code", "code_expired");
         expect(await current()).toBeNull();
+      });
+
+      it("throwing a code away does not shorten the wait for the next one", async () => {
+        const { challenge, code } = await codeSentTo(ASHA.phone);
+        for (let turn = 0; turn < 20; turn += 1) {
+          const result = await auth.verifyCode(challenge.challengeId, wrongCode(code));
+          if (!result.ok && result.error.reason === "code_expired") break;
+        }
+        // Otherwise wrong guesses would be a way to get a fresh code, and five more guesses, at once.
+        expectFailure(await auth.requestCode(ASHA.phone), "rate_limited");
+        wait(challenge.resendAfterSeconds * 1000 + 1000);
+        expect((await auth.requestCode(ASHA.phone)).ok).toBe(true);
       });
 
       it("a challenge that was never issued is refused like an old one", async () => {
@@ -369,9 +391,21 @@ function describeContracts(name: string, services: Services, backstage: Backstag
       it("a code for one number does not open another's account", async () => {
         const asha = await codeSentTo(ASHA.phone);
         const bharat = await codeSentTo(BHARAT.phone);
-        const user = unwrap(await auth.verifyCode(bharat.challenge.challengeId, bharat.code));
-        expect(user.phone).toBe(BHARAT.phone);
         expect(asha.challenge.challengeId).not.toBe(bharat.challenge.challengeId);
+
+        // Asha's code typed against Bharat's challenge. (One time in a million the two codes are the same.)
+        if (asha.code !== bharat.code) {
+          expectFailure(
+            await auth.verifyCode(bharat.challenge.challengeId, asha.code),
+            "invalid",
+            "code",
+            "wrong_code",
+          );
+          expect(await current()).toBeNull();
+        }
+        // A challenge signs in the number it was sent to, and no other.
+        expect(unwrap(await auth.verifyCode(bharat.challenge.challengeId, bharat.code)).phone).toBe(BHARAT.phone);
+        expect((await current())?.phone).toBe(BHARAT.phone);
       });
 
       it("signOut ends the session", async () => {

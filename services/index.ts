@@ -1,4 +1,5 @@
-import { fail } from "@/domain/result";
+import { fail, ok } from "@/domain/result";
+import { env } from "@/lib/env";
 import { reportSessionEnded } from "@/lib/sessionEvents";
 import { mockAccountService } from "./mock/account";
 import { mockAnalysisService } from "./mock/analysis";
@@ -56,7 +57,24 @@ function guarded<T extends object>(service: T): T {
  * server and be reached from here through thin clients that call it; the
  * contracts in ./types.ts stay the same.
  */
-export const authService: AuthService = guarded(mockAuthService);
+const auth = guarded(mockAuthService);
+
+/**
+ * The demo sends no message, so it hands the sign-in code back for the screen
+ * to show. Outside the demo that must never happen, whatever a service
+ * returns, so the code is taken out here as well as never being sent.
+ */
+const withoutCode: AuthService = {
+  async requestCode(phone, options) {
+    const sent = await auth.requestCode(phone, options);
+    return sent.ok ? ok({ ...sent.data, demoCode: undefined }) : sent;
+  },
+  verifyCode: (challengeId, code) => auth.verifyCode(challengeId, code),
+  signOut: () => auth.signOut(),
+  getSession: () => auth.getSession(),
+};
+
+export const authService: AuthService = env.demoMode ? auth : withoutCode;
 export const caseService: CaseService = guarded(mockCaseService);
 export const documentService: DocumentService = guarded(mockDocumentService);
 export const analysisService: AnalysisService = guarded(mockAnalysisService);

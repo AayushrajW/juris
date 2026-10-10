@@ -53,14 +53,32 @@ export interface CodeChallenge {
  * Signing in is a mobile number and a one-time code. There is no separate
  * "sign up": the first time a number is used, checking its code makes the
  * account. There are no passwords to forget.
+ *
+ * What a real service must do that the contract tests cannot see from outside
+ * (the demo does none of it, because it sends no messages and holds no data):
+ *
+ * - Count wrong codes per NUMBER, across challenges, not only per code: a new
+ *   code every thirty seconds must not buy five more guesses for ever.
+ * - Cap the codes sent per number per day, and the numbers asked for per
+ *   device and per network address, and stop sending altogether above a
+ *   spending ceiling. Otherwise a script can run up the SMS bill or pester a
+ *   stranger. A daily cap is "quota_exceeded"; a short wait is "rate_limited".
+ * - Let a code be checked only by the browser that asked for it.
+ * - Whenever it answers that nobody is signed in, also remove the session
+ *   cookie, in the same response. A cookie left behind sends the person round
+ *   in circles between the sign-in page and the page they wanted.
+ * - Never put the code in an answer. `demoCode` exists for the demo alone.
  */
 export interface AuthService {
   /**
    * Sends a one-time code to an Indian mobile number, typed in any usual way.
    * Something that is not such a number is "invalid" (field "phone"). Asking
-   * for the same number again too soon is "rate_limited", with how long to wait.
+   * for the same number again too soon is "rate_limited", with how long to
+   * wait, even when the code before it has been used up or thrown away.
+   * `language` is the one to write the message in: nobody is signed in yet, so
+   * the service cannot know it otherwise.
    */
-  requestCode(phone: string): Promise<Result<CodeChallenge>>;
+  requestCode(phone: string, options?: { language?: LanguageCode }): Promise<Result<CodeChallenge>>;
   /**
    * Checks the code and starts a session. A code that does not match is
    * "invalid" (wrong_code, field "code") and may be typed again. One that is

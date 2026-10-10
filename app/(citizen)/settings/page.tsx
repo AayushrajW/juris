@@ -13,7 +13,7 @@ import { APP_NAME } from "@/lib/constants";
 import { env } from "@/lib/env";
 import { showPhone } from "@/lib/phone";
 import { accountService, authService } from "@/services";
-import { ChevronRight, Download, FileText, LifeBuoy, LogOut, Trash2, type LucideIcon } from "lucide-react";
+import { Check, ChevronRight, Download, FileText, LifeBuoy, LogOut, Trash2, type LucideIcon } from "lucide-react";
 import { useTranslations } from "use-intl";
 import Link from "next/link";
 import { FormEvent, useState } from "react";
@@ -75,10 +75,11 @@ export default function SettingsPage() {
       setNameNote({ ok: false, text: errorText(saved.error) });
       return;
     }
+    // The session is read again first, so the box never falls back to the old
+    // name while "Saved" is showing, and the greeting has the new one at once.
+    await refresh();
     setTypedName(null);
     setNameNote({ ok: true, text: t("saved") });
-    // So the greeting and the corner of the screen show the new name at once.
-    await refresh();
   }
 
   async function downloadData() {
@@ -142,11 +143,15 @@ export default function SettingsPage() {
             <Button type="submit" variant="secondary" disabled={busy || typedName === null}>
               {t("save")}
             </Button>
-            {nameNote?.ok ? (
-              <p className="text-[15px] font-medium text-success" role="status">
-                {nameNote.text}
-              </p>
-            ) : null}
+            {/* Always on the page, so a screen reader announces the word when it appears. */}
+            <p className="flex items-center gap-1.5 text-[15px] font-medium text-success" role="status">
+              {nameNote?.ok ? (
+                <>
+                  <Check className="size-5" strokeWidth={2.5} aria-hidden />
+                  {nameNote.text}
+                </>
+              ) : null}
+            </p>
           </div>
         </form>
       </Card>

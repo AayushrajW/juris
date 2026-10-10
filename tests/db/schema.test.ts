@@ -19,6 +19,7 @@ import {
   makeJob,
   makeMessage,
   makeProfile,
+  isGrantRefusal,
   makeWorld,
   migrationFiles,
   newId,
@@ -186,7 +187,8 @@ describe("every table is locked down", () => {
       profiles: {
         select: true,
         delete: true,
-        insert: ["display_name", "email", "id", "phone", "preferred_language"],
+        // None: the server makes the profile, with the number the sign-in code went to.
+        insert: [],
         update: ["display_name", "preferred_language"],
       },
       consents: {
@@ -266,8 +268,42 @@ describe("every table is locked down", () => {
                 has_table_privilege('service_role', $1, 'truncate') as t`,
         [`app.${table}`],
       );
-      const appendOnly = table === "audit_log";
+      // The audit log and the record of consents can be added to and read, not rewritten or removed.
+      const appendOnly = table === "audit_log" || table === "consents";
       expect(result.rows[0], table).toEqual({ s: true, i: true, u: !appendOnly, d: !appendOnly, t: false });
+    }
+  });
+
+  it("the service can withdraw a consent for a person, and can neither rewrite nor remove one", async () => {
+    const userId = await person();
+    const consent = await asService(db, (tx) => makeConsent(tx, userId));
+
+    for (const statement of [
+      "delete from app.consents where id = $1",
+      "update app.consents set granted_at = '2001-01-01' where id = $1",
+      "update app.consents set is_adult = false where id = $1",
+      "update app.consents set purpose = 'reminders' where id = $1",
+    ]) {
+      const r = await refusal(asService(db, (tx) => tx.query(statement, [consent.id])));
+      expect(isGrantRefusal(r), `${statement}: ${r.message}`).toBe(true);
+    }
+    await asService(db, (tx) => tx.query("update app.consents set withdrawn_at = now() where id = $1", [consent.id]));
+    const after = await readAsService(db, "consents", "id = $1", [consent.id]);
+    expect(after?.withdrawn_at).not.toBeNull();
+    expect(after?.is_adult).toBe(true);
+  });
+
+  it("a function added later is not callable by everyone unless its migration says so", async () => {
+    await db.exec("create function app.added_later() returns int language sql as 'select 1'");
+    try {
+      const result = await db.query<{ p: boolean; a: boolean; n: boolean }>(
+        `select has_function_privilege('public', 'app.added_later()', 'execute') as p,
+                has_function_privilege('authenticated', 'app.added_later()', 'execute') as a,
+                has_function_privilege('anon', 'app.added_later()', 'execute') as n`,
+      );
+      expect(result.rows[0]).toEqual({ p: false, a: false, n: false });
+    } finally {
+      await db.exec("drop function app.added_later()");
     }
   });
 
@@ -396,35 +432,38 @@ describe("check constraints", () => {
 
   it("analysis_jobs: state, language and failure take known values, and a failure is recorded exactly when the job failed", async () => {
     const { userId } = await personWithCase();
-    const freshCase = async () => (await asService(db, (tx) => makeCase(tx, userId))).id as string;
+    // The case is made first, in its own transaction. PGlite has one connection:
+    // opening a transaction inside another waits for ever.
+    const jobOnFreshCase = async (extra: Row) => {
+      const caseId = (await asService(db, (tx) => makeCase(tx, userId))).id as string;
+      return asService(db, (tx) => makeJob(tx, userId, caseId, extra));
+    };
 
-    await expectCheck(asService(db, async (tx) => makeJob(tx, userId, await freshCase(), { state: "paused" })), "analysis_jobs_state_known");
-    await expectCheck(asService(db, async (tx) => makeJob(tx, userId, await freshCase(), { language: "ta" })), "analysis_jobs_language_known");
+    await expectCheck(jobOnFreshCase({ state: "paused" }), "analysis_jobs_state_known");
+    await expectCheck(jobOnFreshCase({ language: "ta" }), "analysis_jobs_language_known");
     await expectCheck(
-      asService(db, async (tx) => makeJob(tx, userId, await freshCase(), { state: "failed", failure_reason: "tired", retryable: true })),
+      jobOnFreshCase({ state: "failed", failure_reason: "tired", retryable: true }),
       "analysis_jobs_failure_reason_known",
     );
     await expectCheck(
-      asService(db, async (tx) => makeJob(tx, userId, await freshCase(), { state: "failed" })),
+      jobOnFreshCase({ state: "failed" }),
       "analysis_jobs_failure_only_when_failed",
     );
     await expectCheck(
-      asService(db, async (tx) => makeJob(tx, userId, await freshCase(), { state: "failed", failure_reason: "internal" })),
+      jobOnFreshCase({ state: "failed", failure_reason: "internal" }),
       "analysis_jobs_failure_only_when_failed",
     );
     await expectCheck(
-      asService(db, async (tx) => makeJob(tx, userId, await freshCase(), { state: "ready", failure_reason: "internal", retryable: false })),
+      jobOnFreshCase({ state: "ready", failure_reason: "internal", retryable: false }),
       "analysis_jobs_failure_only_when_failed",
     );
-    await expectCheck(asService(db, async (tx) => makeJob(tx, userId, await freshCase(), { attempt: 0 })), "analysis_jobs_attempt_positive");
+    await expectCheck(jobOnFreshCase({ attempt: 0 }), "analysis_jobs_attempt_positive");
 
     for (const state of ["queued", "reading", "writing", "ready"]) {
-      await asService(db, async (tx) => makeJob(tx, userId, await freshCase(), { state }));
+      await jobOnFreshCase({ state });
     }
     for (const failure_reason of ["unreadable", "unsupported", "too_long", "internal"]) {
-      await asService(db, async (tx) =>
-        makeJob(tx, userId, await freshCase(), { state: "failed", failure_reason, retryable: failure_reason === "internal" }),
-      );
+      await jobOnFreshCase({ state: "failed", failure_reason, retryable: failure_reason === "internal" });
     }
   });
 
@@ -510,7 +549,9 @@ describe("check constraints", () => {
 
   it("consents: the purpose is a short code, and a purpose has one live consent per policy version", async () => {
     const userId = await person();
-    await expectCheck(asService(db, (tx) => makeConsent(tx, userId, { purpose: "Document Processing" })), "consents_purpose_shape");
+    await expectCheck(asService(db, (tx) => makeConsent(tx, userId, { purpose: "Document Processing" })), "consents_purpose_known");
+    // Only the purposes the schema names, so nobody can fill the table with made-up ones.
+    await expectCheck(asUser(db, userId, (tx) => makeConsent(tx, userId, { purpose: "anything_else" })), "consents_purpose_known");
     await expectCheck(asService(db, (tx) => makeConsent(tx, userId, { policy_version: "" })), "consents_policy_version_length");
     const noAge = await refusal(asService(db, (tx) => makeConsent(tx, userId, { is_adult: undefined })));
     expect(noAge.code, noAge.message).toBe(NOT_NULL_VIOLATION);
@@ -726,7 +767,7 @@ describe("updated_at", () => {
 
   it("profiles: moves when the person changes their profile, and created_at does not", async () => {
     const userId = newId();
-    const made = await asUser(db, userId, (tx) => makeProfile(tx, userId));
+    const made = await asService(db, (tx) => makeProfile(tx, userId));
     expect(time(made.updated_at)).toBe(time(made.created_at));
     await pause();
     await asUser(db, userId, (tx) => tx.query("update app.profiles set display_name = 'Asha' where id = $1", [userId]));

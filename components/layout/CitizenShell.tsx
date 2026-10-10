@@ -9,6 +9,7 @@ import { useErrorText } from "@/hooks/useErrorText";
 import { useSession } from "@/hooks/useSession";
 import { CITIZEN_NAV, HELP_HREF } from "@/lib/constants";
 import { cn } from "@/lib/cn";
+import { authService } from "@/services";
 import {
   ChevronRight,
   FolderOpen,
@@ -51,8 +52,13 @@ export function CitizenShell({ children }: { children: React.ReactNode }) {
   // The proxy only sees a cookie. If the session behind it is gone, send the
   // person to sign in. Not when the session could not be checked: that is a bad
   // connection, and the person may well be signed in.
+  //
+  // The cookie that lets pages open can outlive the session behind it. It is
+  // cleared first: with it still there, the sign-in page would send the person
+  // straight back here, and they would go round for ever.
   useEffect(() => {
-    if (ready && !user && !error) router.replace(`/sign-in?next=${encodeURIComponent(pathname)}`);
+    if (!ready || user || error) return;
+    void authService.signOut().finally(() => router.replace(`/sign-in?next=${encodeURIComponent(pathname)}`));
   }, [ready, user, error, pathname, router]);
 
   return (

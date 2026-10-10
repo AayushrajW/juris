@@ -30,20 +30,23 @@
 - Phase 0, in the repository: version control, Next.js 16, deny-by-default route protection, a content security policy, the open-redirect fix, clean sign-out, date-derived deadlines, error screens, the advocate features switched off, the demo banner, tests and a CI workflow.
 - Marathi (the default), Hindi and English across every screen and the sample cases, with a read-aloud button and a Free help screen with tap-to-call numbers. This was planned for Phases 1 and 2 and was brought forward.
 - Phase 1, first step: the service contracts are rewritten and every screen uses them. The screens no longer say who the person is, lists come in pages, failures are codes shown in the person's language, reading a problem is a background job that survives a closed page, and an explanation stays in the language it was written in until the person asks for it again. People can now delete a problem, download their data and delete everything. A suite of contract tests pins all of this down, and the real backend has to pass the same suite.
-- Of the 206 audit findings, 103 are fixed. The 103 still open include 10 critical and 12 high, and every one of those needs the real backend, the legal pages or a decision from section 3.
+- Phase 1, sign-in: signing in is a mobile number and a 6-digit code, with no email, no password and no separate page for joining. Numbers and codes are accepted however people type them, Devanagari digits included. In the demo no message is sent and the code is shown on the screen. A person can set or clear their name in My account.
+- Phase 1, database: the Postgres schema is written, with row-level security on every table and 186 tests that run on a real Postgres and try to reach another person's data. It needs no account to test. An independent reviewer attacked it and found no way to reach another person's data; what they did find is fixed or listed in `db/README.md`. It is not deployed and the app does not use it yet.
+- Of the 206 audit findings, 104 are fixed. The 102 still open include 10 critical and 12 high, and every one of those needs the real backend, the legal pages or a decision from section 3.
 
 **Needs you**
 
 1. **A private repository on GitHub.** The work is committed locally only, so CI has never run.
 2. **A hosting account**, to put the labelled demo online.
 3. **A human read-through of the Marathi and Hindi**, by someone who reads at the level of your users. The text has had two machine passes, not a person's.
-4. **Decisions 4 and 5 in section 3** (where the data lives, and how people sign in). The next steps of Phase 1 cannot start without them.
+4. **A word on decisions 4 and 5 in section 3.** Work has gone ahead on the plan's recommendations: Postgres with row-level security, and sign-in by mobile number and one-time code. Nothing built so far ties you to one host. Say so if you want either changed.
+5. **Accounts, when you are ready for real data:** a database project in the Mumbai region, and an SMS provider for the sign-in codes. The SMS sender registration needs the registered business (decision 3) and takes one to two weeks, so it is the one to start first.
 
 **Changed from the plan as first written**
 
 - Next.js 16 was adopted in Phase 0, not Phase 1. The 15 line could not pass the dependency audit and leaves support this month.
 - The launch languages are Marathi, Hindi and English, and the sample content is set in Maharashtra.
-- Passwords are gone. Sign-in asks for an email only until phone sign-in replaces it in Phase 1.
+- Passwords and email sign-in are gone. Signing in is a mobile number and a one-time code, and the first use of a number makes the account.
 
 ---
 
@@ -64,7 +67,7 @@ No database, no real sign-in, no file storage, no document reading, no AI, no ba
 
 ### Audit result
 
-206 findings across security, legal and content, correctness, architecture, and UX. At the audit, 204 were open: 13 critical, 35 high, 107 medium and 49 low. Since then 103 have been fixed, leaving 103 open: 10 critical, 12 high, 60 medium and 21 low. The table below describes the product as audited.
+206 findings across security, legal and content, correctness, architecture, and UX. At the audit, 204 were open: 13 critical, 35 high, 107 medium and 49 low. Since then 104 have been fixed, leaving 102 open: 10 critical, 12 high, 59 medium and 21 low. The table below describes the product as audited.
 
 - Seventeen entries, covering eight distinct problems, were reproduced first-hand in the running app or with tooling.
 - A second reviewer re-checked the 68 most serious and rejected none, but lowered the severity of 29, mostly because they describe things a prototype has not built yet and not things that are broken today.
@@ -272,11 +275,11 @@ Durations assume two or three engineers. The legal track in section 8 runs in pa
 1. Move to Next.js 16. Done in Phase 0.
 2. Rewrite the service contracts: no identity parameters, paged lists, a fuller error vocabulary, a job model for analysis, add and delete operations (ARC-02, ARC-10, ARC-11, ARC-26). Done, with every screen moved over and a contract test suite (`tests/contracts.test.ts`) that the real backend must also pass. Five parts of the contract are left for the step that needs them, because each depends on a decision or a service that does not exist yet: the two-step phone sign-in (step 5), recording and withdrawing consent (step 6), replies that appear word by word and upload progress on slow connections (Phase 2), and export as a background job once it has to include the papers themselves (step 7).
 3. Move the services behind the server (ARC-01). Screens call the server; the server calls the data.
-4. Database schema with row-level security, migrations, and automated tests that prove one person cannot read another's case (ARC-05, SEC-11).
-5. Phone sign-in with secure, server-set session cookies (ARC-03).
+4. Database schema with row-level security, migrations, and automated tests that prove one person cannot read another's case (ARC-05, SEC-11). Written and tested locally: `db/migrations/0001_init.sql`, with 186 tests in `tests/db/` that run on a real Postgres inside Node (`npm run test:db`), and reviewed once by an independent reviewer. Still to do: the gaps listed in `db/README.md`, and applying it to the hosted database.
+5. Phone sign-in with secure, server-set session cookies (ARC-03). The contract, the screens and their tests are done, against the demo, and reviewed. Still to do: the SMS provider, a session cookie set by the server, and the limits a real service must keep, which are written at the top of the sign-in contract in `services/types.ts` (wrong codes counted per number, a daily cap on codes sent, a spending ceiling). Also wanted before launch: a voice call that reads the code out, for people who cannot read a text message.
 6. Consent recorded at sign-up and at first upload, an 18+ declaration, and the privacy, terms, disclaimer and grievance pages (LEG-14, LEG-15, LEG-17).
 7. Export and delete for one's own data and account (LEG-16, SEC-17). Done in the contract and on the screens (delete a problem, download my data, delete everything). On the real backend it also has to erase stored files and backups, and confirm who is asking before it deletes an account.
-8. Rate limits and per-person daily quotas (ARC-20).
+8. Rate limits and per-person daily quotas (ARC-20). The review of the database found that limits are not yet enforced there, and that deleting an account would reset them: see "Known gaps" in `db/README.md` before building this.
 9. Error tracking and logging with personal data scrubbed (ARC-22).
 10. Move all interface text into message files (UX-05, ARC-34). Done, in three languages.
 11. Fix the accessibility gaps on core screens (UX-02, UX-04). Done: semantics and focus in the new-case steps, working tabs and dialogs, legal aid in the main navigation, a title for every page, and each form error shown on its own field.

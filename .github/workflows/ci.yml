@@ -26,6 +26,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run test
+      - run: npm run test:db
       - run: npm run build
       # Only what ships. The lint toolchain carries advisories with no upstream fix.
       - run: npm audit --omit=dev --audit-level=high

@@ -92,7 +92,9 @@ create table app.consents (
   is_adult       boolean not null,
   granted_at     timestamptz not null default now(),
   withdrawn_at   timestamptz,
-  constraint consents_purpose_shape check (purpose ~ '^[a-z][a-z0-9_]{0,63}$'),
+  -- A known list: with one live consent per purpose and policy version, this
+  -- also bounds how many rows a person can make. Add a purpose by migration.
+  constraint consents_purpose_known check (purpose in ('account', 'document_processing', 'reminders')),
   constraint consents_policy_version_length check (char_length(policy_version) between 1 and 64),
   constraint consents_withdrawn_after_granted check (withdrawn_at is null or withdrawn_at >= granted_at)
 );
@@ -372,8 +374,11 @@ grant execute on function app.user_id() to authenticated, service_role;
 -- A signed-in person. Inserts name the columns a person may supply, so
 -- everything else (ids, status, timestamps) takes its default. Updates name
 -- the columns a person may change.
+--
+-- A person cannot make their own profile. The server makes it, as the service
+-- role, straight after it has checked the sign-in code, with the number that
+-- code was sent to. If a person could insert it, they could claim any number.
 grant select on app.profiles to authenticated;
-grant insert (id, phone, email, display_name, preferred_language) on app.profiles to authenticated;
 grant update (display_name, preferred_language) on app.profiles to authenticated;
 grant delete on app.profiles to authenticated;
 
@@ -410,11 +415,21 @@ grant insert (case_id, user_id, content, language, request_id) on app.chat_messa
 -- The server's background work. It bypasses row-level security, so these
 -- grants are all that limit it.
 grant select, insert, update, delete on
-  app.profiles, app.consents, app.cases, app.case_stories, app.documents,
+  app.profiles, app.cases, app.case_stories, app.documents,
   app.analysis_jobs, app.analyses, app.chat_messages, app.usage_counters
   to service_role;
 -- Append-only: it can add to the audit log and read it, not change or remove it.
 grant select, insert on app.audit_log to service_role;
+-- Consents are the record of what a person agreed to. The server may record
+-- one and withdraw one on a person's behalf; it cannot rewrite or remove one.
+-- They go only when the account goes.
+grant select, insert on app.consents to service_role;
+grant update (withdrawn_at) on app.consents to service_role;
+
+-- A function added by a later migration must not be callable by everyone
+-- unless that migration says so. Without this, Postgres lets PUBLIC run every
+-- new function. It applies to functions made by the role running migrations.
+alter default privileges revoke execute on functions from public;
 
 -- ---------------------------------------------------------------------------
 -- Policies (role "authenticated" only; "anon" has none and no grants)
@@ -425,9 +440,6 @@ grant select, insert on app.audit_log to service_role;
 -- A person reads their own profile.
 create policy profiles_select_own on app.profiles for select to authenticated
   using (id = (select app.user_id()));
--- A person makes their own profile, under their own id.
-create policy profiles_insert_own on app.profiles for insert to authenticated
-  with check (id = (select app.user_id()));
 -- A person changes their own name and language (the grant limits the columns).
 create policy profiles_update_own on app.profiles for update to authenticated
   using (id = (select app.user_id()))
@@ -470,9 +482,12 @@ create policy cases_delete_own on app.cases for delete to authenticated
 -- A person reads the story of their own case.
 create policy case_stories_select_own on app.case_stories for select to authenticated
   using (user_id = (select app.user_id()));
--- A person writes the story of their own case (the foreign key ties it to a case of theirs).
+-- A person writes the story of their own case. The case is checked here, and
+-- not only by the foreign key, so that pointing at somebody else's case is
+-- refused the same way whether or not that case already has a story.
 create policy case_stories_insert_own on app.case_stories for insert to authenticated
-  with check (user_id = (select app.user_id()));
+  with check (user_id = (select app.user_id())
+    and exists (select 1 from app.cases c where c.id = case_id and c.user_id = (select app.user_id())));
 -- A person rewrites their own story (the grant limits the columns).
 create policy case_stories_update_own on app.case_stories for update to authenticated
   using (user_id = (select app.user_id()))
@@ -488,7 +503,8 @@ create policy documents_select_own on app.documents for select to authenticated
   using (user_id = (select app.user_id()));
 -- A person adds a paper to their own case; it starts unchecked.
 create policy documents_insert_own on app.documents for insert to authenticated
-  with check (user_id = (select app.user_id()) and status = 'checking' and rejected_reason is null);
+  with check (user_id = (select app.user_id()) and status = 'checking' and rejected_reason is null
+    and exists (select 1 from app.cases c where c.id = case_id and c.user_id = (select app.user_id())));
 -- A person removes their own paper.
 create policy documents_delete_own on app.documents for delete to authenticated
   using (user_id = (select app.user_id()));
@@ -500,7 +516,8 @@ create policy analysis_jobs_select_own on app.analysis_jobs for select to authen
   using (user_id = (select app.user_id()));
 -- A person asks for their own case to be read; the job starts in the queue.
 create policy analysis_jobs_insert_own on app.analysis_jobs for insert to authenticated
-  with check (user_id = (select app.user_id()) and state = 'queued' and attempt = 1);
+  with check (user_id = (select app.user_id()) and state = 'queued' and attempt = 1
+    and exists (select 1 from app.cases c where c.id = case_id and c.user_id = (select app.user_id())));
 
 -- analyses ------------------------------------------------------------------
 
@@ -515,6 +532,7 @@ create policy chat_messages_select_own on app.chat_messages for select to authen
   using (user_id = (select app.user_id()));
 -- A person asks a question about their own case; replies come from the worker.
 create policy chat_messages_insert_own on app.chat_messages for insert to authenticated
-  with check (user_id = (select app.user_id()) and role = 'user' and in_reply_to is null);
+  with check (user_id = (select app.user_id()) and role = 'user' and in_reply_to is null
+    and exists (select 1 from app.cases c where c.id = case_id and c.user_id = (select app.user_id())));
 
 -- audit_log and usage_counters: no policies and no grants. Only the service role reaches them.

@@ -68,6 +68,8 @@ export interface MockStore {
   requests: Record<string, StoredRequest>;
   /** One-time codes that have been asked for and not yet used, by challenge id. */
   challenges: Record<string, StoredChallenge>;
+  /** When each number was last sent a code. Kept apart from the codes, so using one up does not reset the wait. */
+  sends: Record<string, string>;
   lawyerThreads: LawyerThread[];
 }
 
@@ -81,6 +83,7 @@ function seed(): MockStore {
     jobs: {},
     requests: {},
     challenges: {},
+    sends: {},
     lawyerThreads: structuredClone(DEMO_LAWYER_THREADS),
   };
 }

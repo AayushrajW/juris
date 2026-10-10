@@ -32,9 +32,10 @@ export const mockAuthService: AuthService = {
     if (!phone) return fail("invalid", { field: "phone" });
 
     const now = Date.now();
-    const earlier = Object.values(loadStore().challenges).find((c) => c.phone === phone);
-    const waited = earlier ? (now - Date.parse(earlier.sentAt)) / 1000 : Infinity;
-    if (waited < RESEND_AFTER_SECONDS) {
+    const lastSent = loadStore().sends[phone];
+    const waited = lastSent ? (now - Date.parse(lastSent)) / 1000 : Infinity;
+    // A clock that has been set back must not turn the wait into a long one.
+    if (waited >= 0 && waited < RESEND_AFTER_SECONDS) {
       return fail("rate_limited", { retryAfterSeconds: Math.ceil(RESEND_AFTER_SECONDS - waited) });
     }
 
@@ -53,6 +54,7 @@ export const mockAuthService: AuthService = {
         ...Object.fromEntries(Object.entries(s.challenges).filter(([, c]) => c.phone !== phone)),
         [challengeId]: challenge,
       },
+      sends: { ...s.sends, [phone]: challenge.sentAt },
     }));
     const sent: CodeChallenge = {
       challengeId,

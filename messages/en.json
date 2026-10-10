@@ -88,12 +88,16 @@
     "codeLabel": "6-digit code",
     "checking": "Checking…",
     "resend": "Send the code again",
-    "resendIn": "You can ask for a new code in {seconds} seconds.",
+    "resendIn": "Wait {seconds} sec. Then you can ask for a new code.",
     "changeNumber": "Change the number",
     "demoCode": "Demo: no message was sent. The code is {code}.",
     "errPhone": "Enter a 10-digit mobile number.",
     "errCode": "That code is not right. Check it and try again.",
-    "errCodeExpired": "That code no longer works. Ask for a new one."
+    "errCodeExpired": "That code no longer works. Tap “Send the code again” below.",
+    "resendLater": "You can ask for a new code a little later.",
+    "resendReady": "You can ask for a new code now.",
+    "codeNotCome": "Code did not come? Check the number: {phone}",
+    "errCodeShort": "Enter all 6 digits of the code."
   },
   "dashboard": {
     "hello": "Hello, {name}!",

@@ -4,8 +4,8 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 ## How to read this
 
-- **Status on 10 October 2026:** 103 findings are fixed and stay listed with what was done. 35 more are partly done or switched off.
-- **Open findings:** 10 critical, 12 high, 60 medium, 21 low. Several describe the same root cause from different angles (for example the fake sign-in appears under security, correctness and architecture).
+- **Status on 10 October 2026:** 104 findings are fixed and stay listed with what was done. 38 more are partly done or switched off.
+- **Open findings:** 10 critical, 12 high, 59 medium, 21 low. Several describe the same root cause from different angles (for example the fake sign-in appears under security, correctness and architecture).
 - **Severity** is judged against a public launch handling real people's legal papers, not against a demo.
 - **Effort:** S is under half a day, M is up to about three days, L is a week or more.
 - **Status** says how far each finding has been checked. "Reproduced first-hand" means it was observed happening in the running app, or confirmed with tooling such as `npm audit`. "Code review" means a reviewer read the code and reported it; "Confirmed by a second reviewer" means an independent reviewer re-read the code and agreed.
@@ -23,7 +23,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `services/mock/auth.ts:16`
 - **Effort:** L
-- **Status:** Confirmed by a second reviewer
+- **Status:** Partly done: signing in is now a mobile number and a one-time code, with the rules a real service must keep (a code works once, goes stale, and is thrown away after wrong guesses) written as tests. The demo still lets any number in, because no message is sent; real codes need the SMS provider.
 - **Impact:** There is no identity proof of any kind: anyone who reaches the URL enters as any email address, with no account store, no email/phone ownership check and no credential. signUp simply delegates to signIn (auth.ts:25-30), so there is no duplicate or verification step either. The sign-in form is also pre-filled with a demo account (sign-in/page.tsx:18) and hard-codes displayName "Meera Iyer" (line 27), which would be a default-credential backdoor if left in.
 - **Fix:** Replace mockAuthService with a real identity provider behind a server boundary. Consistent with the plan's Firebase direction: Firebase Auth on the client (phone OTP plus email link is the practical choice for Indian citizens), then POST the ID token to a new app/api/session/route.ts that calls adminAuth.createSessionCookie() and sets the session cookie server-side (see SEC-02). Make AuthCredentials.password non-optional or remove password auth entirely, delete DEMO_AUTH_NOTE, the pre-filled email and the hard-coded displayName, and gate any demo account behind an explicit NEXT_PUBLIC_DEMO_MODE flag that is off in production.
 
@@ -937,7 +937,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `middleware.ts:23`
 - **Effort:** L
-- **Status:** Reproduced first-hand
+- **Status:** Partly done: the sign-in contract and screens are a mobile number and a one-time code, with no password. The session is still a cookie written by the browser; a server-set cookie arrives with the server.
 - **Impact:** Anyone can enter the app by setting a cookie in devtools; there is no identity, no password check (sign-up passes `password: "demo"`, app/(auth)/sign-up/page.tsx:23), and the AuthService contract has no OTP, token refresh, auth-state subscription or account deletion. Email+password is also the wrong default for the target user in India.
 - **Fix:** Use Supabase Auth in an ap-south-1 (Mumbai) project with phone-OTP as the primary factor, sending SMS through a Send-SMS auth hook to MSG91 (DLT-registered template; start DLT entity/header/template registration immediately, it has multi-day lead time). Use `@supabase/ssr` for HttpOnly+Secure cookies, verify the JWT in middleware and again in every route handler. Redesign the contract: `requestOtp(phoneE164)`, `verifyOtp(phoneE164, code)`, `getSession()`, `onAuthStateChange(cb)`, `signOut()`, `deleteAccount()`. Put Cloudflare Turnstile in front of `requestOtp` to stop SMS-pumping. Why: auth, DB and storage in one India-region project is the cheapest and fastest option and keeps identity data in India.
 
@@ -953,7 +953,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `services/mock/store.ts:12`
 - **Effort:** L
-- **Status:** Confirmed by a second reviewer
+- **Status:** Partly done: the Postgres schema with row-level security is written, with 186 tests run on a real Postgres that try to reach another person's data and fail, and an independent reviewer who attacked it found no way through. It is not deployed and the app does not use it yet.
 - **Impact:** User data is lost on browser clear, device change or private mode; nothing is visible to an advocate, reviewer or support; no backups, no migrations, no relational integrity. Nothing here can be reused for production.
 - **Fix:** Supabase Postgres in ap-south-1 (Mumbai) with point-in-time recovery enabled. Schema as SQL migrations via the Supabase CLI (RLS policies live in SQL anyway) plus `supabase gen types typescript` for typed access; tables: users, consents, cases, case_descriptions, documents, document_pages, analysis_jobs, analyses, analysis_items, conversations, messages, advocate_profiles, consultation_requests, threads, audit_events, usage_quotas. Why Supabase over the Firebase named in the spec: the data is relational (case -> documents -> analyses -> consents -> audit), RLS gives per-row authorisation in the DB, SQL makes funnel/ops queries trivial, and a plain-Postgres exit to AWS RDS Mumbai is always available. This deviates from README.md:31, so it is a founder decision to confirm first.
 
@@ -1065,7 +1065,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `package.json:5`
 - **Effort:** M
-- **Status:** Partly done: 199 tests, including a contract suite that any future backend must also pass, and a CI workflow. CI has not run, because no remote exists yet. No end-to-end tests.
+- **Status:** Partly done: 242 tests of the app, including a contract suite that any future backend must also pass, 186 tests of the database, and a CI workflow that runs both. CI has not run, because no remote exists yet. No end-to-end tests.
 - **Impact:** Nothing protects the deadline logic, the authorisation rules or the upload journey from regressions, and nothing stops a vulnerable or broken build from being deployed.
 - **Fix:** Vitest + Testing Library for `domain/deadline`, `lib/lawyerMatch`, `lib/format` and store logic; a shared contract suite (`services/__contract__/*.contract.ts`) executed against both the mock and the real implementation (local Supabase via `supabase start`), including cross-user access denial; Playwright on a mobile viewport for sign-in -> new case -> upload -> processing -> analysis -> ask; promptfoo evals for the AI pipeline. GitHub Actions workflow on every PR: `npm ci`, typecheck, lint, vitest, `next build`, `npm audit --omit=dev --audit-level=high`, Playwright smoke; protect `main`.
 
@@ -1157,7 +1157,7 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 
 - **Where:** `domain/user.ts:4`
 - **Effort:** M
-- **Status:** Code review
+- **Status:** Partly done: a person is identified by their mobile number, and can set their name and language. Verification of the number waits for the SMS provider; location and other roles are not modelled.
 - **Fix:** `users(id, phone_e164 unique, phone_verified_at, email null, display_name, preferred_language, state_code, district_code, roles text[], created_at, last_seen_at, deleted_at)`; keep the profile separate from the auth identity (Supabase `auth.users` -> `public.users` via trigger). Collect state/district once at onboarding from a reference list. Make email optional.
 
 ### ARC-31 · medium · No audit trail, soft delete, or update/delete operations in the repositories
@@ -1477,11 +1477,11 @@ The full register behind [LAUNCH_PLAN.md](LAUNCH_PLAN.md). The plan says what to
 - **Status:** Fixed with the multilingual work: tap-to-call helplines.
 - **Fix:** In app/(citizen)/legal-aid/page.tsx add verified <a href="tel:..."> cards (NALSA helpline, emergency number, consumer helpline) with min-h-12 targets, mark external links with an icon and sr-only '(opens official website)', and link this page from the dashboard.
 
-### UX-22 · medium · Account page offers only Sign out: no profile edit, language, or delete-my-data control
+### UX-22 · fixed · Account page offers only Sign out: no profile edit, language, or delete-my-data control
 
 - **Where:** `app/(citizen)/settings/page.tsx:50`
 - **Effort:** M
-- **Status:** Partly done: My account offers language, download my data and delete everything. Changing the name shown is in the contract but has no screen yet.
+- **Status:** Fixed in Phase 1: My account offers language, the name shown, download my data and delete everything.
 - **Fix:** In app/(citizen)/settings/page.tsx add an editable name field, a language selector, and a 'Delete everything on this device' action with a confirm dialog; add per-case delete on cases/[caseId]/page.tsx; state clearly what Sign out keeps or removes.
 
 ### UX-23 · fixed · Chat input is 14px single-line with no mobile keyboard hints and accepts empty sends
