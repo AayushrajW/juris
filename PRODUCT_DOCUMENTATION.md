@@ -7,15 +7,15 @@ This file describes what the code in this repository does **today**. It is not t
 
 ```text
 Status:        Prototype (front-end demo; no backend)
-Last Updated:  2026-10-10   (commit d628534, branch phase-1)
+Last Updated:  2026-10-10   (branch main; see the Change Log for what each update covered)
 Version:       0.1.0 (package.json)
 Frontend:      Next.js 16.4.0 (App Router), React 19.3.0, TypeScript, Tailwind CSS 4
 Backend:       None. No API routes, route handlers or server actions exist.
 Database:      None in use. A Postgres schema exists in db/ and is tested locally; the app does not connect to it.
 LLM:           None. No model is called anywhere in the code.
 OCR:           None.
-Hosting:       None. No deployment config; no git remote; CI workflow has never run.
-Features:      44 total — 9 working end-to-end, 2 partial, 17 mock/demo, 14 not started, 2 need verification
+Hosting:       None. No deployment config. The code is in a private GitHub repository, where CI runs.
+Features:      44 total — 10 working end-to-end, 2 partial, 17 mock/demo, 14 not started, 1 needs verification
 Biggest gaps:
   - Nothing is real behind the screens: sign-in, storage, reading a paper and answering questions are simulated in the browser.
   - No server: all data is in the browser's localStorage, unencrypted; a session is a cookie written by browser script.
@@ -60,7 +60,7 @@ Status: ✅ Working end-to-end · 🟡 Partial · 🟠 Mock/Demo · 🔴 Not imp
 | 10 | Route protection | 🟡 | Ran | `proxy.ts`, `components/layout/CitizenShell.tsx` | No cookie → redirect to sign-in (Ran). **Any** cookie value passes the server check: `Cookie: juris_session=anything` returned HTTP 200 for `/dashboard` (Ran). The page shell then finds no session in the browser and redirects. |
 | 11 | Postgres schema with row-level security | 🟡 | Test | `db/migrations/0001_init.sql`, `tests/db/` (186) | Tested on PGlite only. Never applied to a real database. The app does not use it. Known gaps in `db/README.md`. |
 | 12 | Read aloud ("Listen" button) | ⚠️ | Needs verification | `components/ui/ListenButton.tsx` | Uses the browser's own speech. Button appears in English on the test machine; speech itself was never heard, and no Marathi or Hindi voice was available. |
-| 13 | CI pipeline | ⚠️ | Needs verification | `.github/workflows/ci.yml` | File exists. No git remote, so it has never run. |
+| 13 | CI pipeline | ✅ | Ran | `.github/workflows/ci.yml` | Runs on GitHub on every push to `main` and every pull request: install, type-check, lint, both test suites, build, audit of production dependencies. First run (on the push of commit `8c506c1`) passed every step. |
 | 14 | Sign-in by mobile number and 6-digit code | 🟠 | Ran, Test | `app/(auth)/sign-in/page.tsx`, `services/mock/auth.ts`, `lib/phone.ts`, `tests/phone.test.ts` (24) | **No SMS is sent. Any valid-looking Indian number gets in.** The code is generated in the browser and shown on screen. |
 | 15 | Session | 🟠 | Ran, Test | `services/mock/session.ts`, `hooks/useSession.tsx`, `tests/mockBrowser.test.ts` (8) | Cookie `juris_session` holds a user id and is written by browser script (not HttpOnly, not signed). |
 | 16 | Home screen | 🟠 | Ran | `app/(citizen)/dashboard/page.tsx` | Shows sample problems and the nearest sample date. |
@@ -97,7 +97,7 @@ Numbers in brackets are passing test counts for that file on 2026-10-10.
 
 ## 3. Demo vs Real
 
-- **Real / end-to-end:** #1–#9. These need no backend: static pages, language switching, headers, redirect safety, date logic, and the typed contract layer.
+- **Real / end-to-end:** #1–#9 and #13. These need no backend: static pages, language switching, headers, redirect safety, date logic, the typed contract layer, and the CI pipeline.
 - **Simulated:** reading a paper (#19), the explanation (#20, #21), answers to questions (#22), the sign-in code (#14).
 - **Hardcoded:** job stage timings (`services/mock/jobs.ts`); sign-in limits of 30 s resend, 10-minute code life, 5 wrong tries (`services/mock/auth.ts`); page sizes 20 default / 50 maximum (`services/mock/session.ts`); file limit 12 MB and types PDF/JPEG/PNG/WebP (`lib/files.ts`); helpline numbers (`lib/helplines.ts`); the sample number pre-filled on sign-in in demo mode (`data/mocks/user.ts`).
 - **Mock / seed data:** the sample person and three sample cases with explanations in three languages (`data/mocks/`); two sample images (`public/demo/`); fictional advocates (`data/mocks/lawyers.ts`, `data/mocks/lawyerChats.ts`).
@@ -322,6 +322,9 @@ Ran on 2026-10-10 at commit `d628534`: `npm run check` → type-check clean, lin
 
 Total: 242 (`npm test`) + 186 (`npm run test:db`) = 428 passing.
 
+CI on GitHub ran the same checks plus a build and the audit, and passed (see #13). A fresh clone of the repository
+into an empty folder was also checked on 2026-10-10: `npm ci`, `npm run check` and `npm run build` all succeeded.
+
 Not covered: no component or end-to-end browser tests; no test of `proxy.ts`; no test against a real Postgres server
 (only PGlite); nothing tests a real backend, because none exists. Manual checks in §2 marked `Ran` were scripted in a
 browser against `next build` + `next start`.
@@ -329,9 +332,14 @@ browser against `next build` + `next start`.
 ## 13. Setup & Deployment
 
 ```bash
+git clone https://github.com/AayushrajW/juris.git   # private: access is by invitation
+cd juris
 npm install
 npm run dev        # http://localhost:3000
 ```
+
+Step-by-step instructions for VS Code and other editors are in `docs/GETTING_STARTED.md`. Shared editor settings
+are in `.vscode/`, `.editorconfig` and `.nvmrc` (Node 22).
 
 Sign in with any Indian mobile number; the code appears on the screen. Other commands: `npm run build`, `npm run start`,
 `npm run typecheck`, `npm run lint`, `npm test`, `npm run test:db`, `npm run check` (all four checks).
@@ -343,6 +351,8 @@ Sign in with any Indian mobile number; the code appears on the screen. Other com
 | `NODE_ENV` | Set by Next.js; relaxes CSP and drops HSTS in development | Set automatically | `production` |
 
 A malformed flag value throws at start (`lib/env.ts`). Both flags are public and built into the pages; there are no secrets.
+
+**Source hosting:** private repository `AayushrajW/juris` on GitHub, default branch `main`.
 
 **Production / hosting:** none exists. Applying the database migration is described in `db/README.md` and has never been done.
 
@@ -385,7 +395,7 @@ Items below are stated in `docs/LAUNCH_PLAN.md` or `db/README.md` unless marked 
 | P1 | AI analysis and chat with output validation and human review | Explanations are samples | Not started |
 | P1 | Rate limits and daily quotas, enforced in the database | Gaps listed in `db/README.md` | Not started |
 | P1 | Error tracking and logging | None | Not started |
-| P1 | Create a git remote and let CI run | CI has never run | Not started |
+| P1 | Create a git remote and let CI run | CI had never run | Done 2026-10-10 |
 | P2 | Human review of Marathi and Hindi wording | Machine-written | Not started |
 | P2 | Voice call option for sign-in codes | For people who cannot read a text message | Not started |
 | P2 | Hosting for a labelled demo | — | Not started |
@@ -402,4 +412,16 @@ Items below are stated in `docs/LAUNCH_PLAN.md` or `db/README.md` unless marked 
 ### Known Issues
 - Read aloud and the CI pipeline could not be verified (see §2, #12 and #13).
 - Helpline numbers, phone-size layout and translation quality were not re-verified in this pass.
+```
+
+```text
+## [2026-10-10] (second entry)
+### Added
+- docs/GETTING_STARTED.md, shared editor settings (.vscode/, .editorconfig, .nvmrc) and a README quick start.
+### Changed
+- The code is now in a private GitHub repository (AayushrajW/juris); main holds the latest work.
+- CI pipeline (#13) moved from "Needs verification" to working: its first run on GitHub passed every step.
+- Verified that a fresh clone installs, passes all checks and builds.
+### Known Issues
+- Unchanged from the first entry, apart from CI.
 ```
