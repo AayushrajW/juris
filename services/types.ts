@@ -37,18 +37,40 @@ export interface RequestOptions {
   requestId?: string;
 }
 
-// Sign-in is still the demo's "any name and email". It becomes a two-step code
-// flow once the sign-in method is decided (docs/LAUNCH_PLAN.md, section 3).
-export interface AuthCredentials {
-  displayName?: string;
-  email: string;
+/** A one-time code on its way to a phone. */
+export interface CodeChallenge {
+  challengeId: string;
+  /** The number the code went to, in international form. */
+  phone: string;
+  /** How long to wait before another code may be asked for. */
+  resendAfterSeconds: number;
+  expiresAt: string;
+  /** Demo only: the code itself, since no message is really sent. A real service never sets it. */
+  demoCode?: string;
 }
 
+/*
+ * Signing in is a mobile number and a one-time code. There is no separate
+ * "sign up": the first time a number is used, checking its code makes the
+ * account. There are no passwords to forget.
+ */
 export interface AuthService {
-  signIn(credentials: AuthCredentials): Promise<Result<User>>;
-  signUp(credentials: AuthCredentials): Promise<Result<User>>;
-  signOut(): Promise<void>;
-  getSession(): Promise<User | null>;
+  /**
+   * Sends a one-time code to an Indian mobile number, typed in any usual way.
+   * Something that is not such a number is "invalid" (field "phone"). Asking
+   * for the same number again too soon is "rate_limited", with how long to wait.
+   */
+  requestCode(phone: string): Promise<Result<CodeChallenge>>;
+  /**
+   * Checks the code and starts a session. A code that does not match is
+   * "invalid" (wrong_code, field "code") and may be typed again. One that is
+   * too old, already used, or was got wrong too many times is "invalid"
+   * (code_expired, field "code"): a new code has to be asked for.
+   */
+  verifyCode(challengeId: string, code: string): Promise<Result<User>>;
+  signOut(): Promise<Result<null>>;
+  /** Who is signed in, or null. A failure means it could not be checked, not that nobody is. */
+  getSession(): Promise<Result<User | null>>;
 }
 
 export interface CreateCaseInput {

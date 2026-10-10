@@ -9,8 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const STORE_KEY = "juris-mock-v4";
-const ASHA = { email: "asha.browser@example.org", displayName: "Asha" };
-const BHARAT = { email: "bharat.browser@example.org", displayName: "Bharat" };
+const ASHA = "+919811100003";
+const BHARAT = "+919811100004";
 const STORY = "My landlord has not returned my deposit for three months.";
 
 class FakeStorage {
@@ -55,6 +55,19 @@ async function openTab(): Promise<Tab> {
   return import("@/services");
 }
 
+async function signIn(tab: Tab, phone: string) {
+  const sent = await tab.authService.requestCode(phone);
+  if (!sent.ok || !sent.data.demoCode) throw new Error("no code");
+  const checked = await tab.authService.verifyCode(sent.data.challengeId, sent.data.demoCode);
+  if (!checked.ok) throw new Error("could not sign in");
+  return checked.data;
+}
+
+async function who(tab: Tab) {
+  const session = await tab.authService.getSession();
+  return session.ok ? session.data : null;
+}
+
 async function titles(tab: Tab) {
   const listed = await tab.caseService.list({ limit: 50 });
   return listed.ok ? listed.data.items.map((c) => c.title) : listed.error.code;
@@ -86,18 +99,18 @@ describe("the demo services in a browser", () => {
 
   it("keeps a person's problems across a reload, in storage", async () => {
     const tab = await openTab();
-    await tab.authService.signIn(ASHA);
+    await signIn(tab, ASHA);
     await addCase(tab, "Deposit not returned");
     expect(page.cookie).toContain("juris_session=");
 
     const reloaded = await openTab();
-    expect((await reloaded.authService.getSession())?.email).toBe(ASHA.email);
+    expect((await who(reloaded))?.phone).toBe(ASHA);
     expect(await titles(reloaded)).toContain("Deposit not returned");
   });
 
   it("does not bring a person's data back after they sign out in another tab", async () => {
     const first = await openTab();
-    await first.authService.signIn(ASHA);
+    await signIn(first, ASHA);
     await addCase(first, "Deposit not returned");
     const second = await openTab();
     expect(await titles(second)).toContain("Deposit not returned");
@@ -108,29 +121,29 @@ describe("the demo services in a browser", () => {
     // The second tab still has everything in memory. It must not use it, or write it back.
     expect(await titles(second)).toBe("unauthenticated");
     expect((await addCase(second, "Written after sign-out")).ok).toBe(false);
-    expect(await second.authService.getSession()).toBeNull();
+    expect(await who(second)).toBeNull();
     expect(storage.getItem(STORE_KEY)).toBeNull();
   });
 
   it("shows the next person only their own data, even in a tab the first person left open", async () => {
     const left = await openTab();
-    await left.authService.signIn(ASHA);
+    await signIn(left, ASHA);
     await addCase(left, "Asha's deposit");
 
     const other = await openTab();
     await other.authService.signOut();
-    await other.authService.signIn(BHARAT);
+    await signIn(other, BHARAT);
     await addCase(other, "Bharat's salary");
 
     const seen = await titles(left);
     expect(seen).toContain("Bharat's salary");
     expect(seen).not.toContain("Asha's deposit");
-    expect(JSON.stringify(storage.getItem(STORE_KEY))).not.toContain("Asha");
+    expect(storage.getItem(STORE_KEY)).not.toContain("Asha's deposit");
   });
 
   it("carries on from memory when storage is full, and loses nothing it was told", async () => {
     const tab = await openTab();
-    await tab.authService.signIn(ASHA);
+    await signIn(tab, ASHA);
     storage.full = true;
 
     const made = await addCase(tab, "Made while storage was full");
@@ -141,7 +154,7 @@ describe("the demo services in a browser", () => {
 
   it("lets go of the first person's data when storage was full and someone else has since signed in", async () => {
     const stuck = await openTab();
-    await stuck.authService.signIn(ASHA);
+    await signIn(stuck, ASHA);
     storage.full = true;
     await addCase(stuck, "Asha's deposit");
 
@@ -149,7 +162,7 @@ describe("the demo services in a browser", () => {
     storage.full = false;
     const other = await openTab();
     await other.authService.signOut();
-    await other.authService.signIn(BHARAT);
+    await signIn(other, BHARAT);
     await addCase(other, "Bharat's salary");
 
     // The tab that got stuck is still holding Asha's data in memory.
@@ -157,31 +170,32 @@ describe("the demo services in a browser", () => {
     expect(seen).not.toContain("Asha's deposit");
     expect(seen).toContain("Bharat's salary");
     await addCase(stuck, "Written from the old tab");
-    expect(storage.getItem(STORE_KEY)).not.toContain("Asha");
-    expect((await stuck.authService.getSession())?.email).toBe(BHARAT.email);
+    expect(storage.getItem(STORE_KEY)).not.toContain("Asha's deposit");
+    expect(storage.getItem(STORE_KEY)).not.toContain(ASHA);
+    expect((await who(stuck))?.phone).toBe(BHARAT);
   });
 
   it("treats a session cookie with no data behind it as no session, and clears the cookie", async () => {
     page.cookie = "juris_session=user-made-up; path=/";
     const tab = await openTab();
     expect(await titles(tab)).toBe("unauthenticated");
-    expect(await tab.authService.getSession()).toBeNull();
+    expect(await who(tab)).toBeNull();
     expect(page.cookie).not.toContain("juris_session=");
   });
 
   it("starts clean, signed out, from a stored value that cannot be read", async () => {
     const tab = await openTab();
-    await tab.authService.signIn(ASHA);
+    await signIn(tab, ASHA);
     storage.setItem(STORE_KEY, "{ not json");
 
     const reloaded = await openTab();
-    expect(await reloaded.authService.getSession()).toBeNull();
+    expect(await who(reloaded)).toBeNull();
     expect(await titles(reloaded)).toBe("unauthenticated");
   });
 
   it("removes what earlier builds stored under their own keys", async () => {
-    storage.setItem("juris-mock-v1", '{"user":{"email":"old@example.org"}}');
-    storage.setItem("juris-mock-v3", '{"user":{"email":"old@example.org"}}');
+    storage.setItem("juris-mock-v1", '{"user":{"phone":"+919800000000"}}');
+    storage.setItem("juris-mock-v3", '{"user":{"phone":"+919800000000"}}');
     const tab = await openTab();
     await tab.authService.getSession();
     expect(storage.getItem("juris-mock-v1")).toBeNull();

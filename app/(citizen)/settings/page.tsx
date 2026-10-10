@@ -5,16 +5,18 @@ import { LanguageChoices } from "@/components/i18n/LanguageSwitcher";
 import { AppPage, PageHeading } from "@/components/ui/AppKit";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Display";
+import { Input } from "@/components/ui/Field";
 import { Sheet } from "@/components/ui/Sheet";
 import { useErrorText } from "@/hooks/useErrorText";
 import { useSession } from "@/hooks/useSession";
 import { APP_NAME } from "@/lib/constants";
 import { env } from "@/lib/env";
+import { showPhone } from "@/lib/phone";
 import { accountService, authService } from "@/services";
 import { ChevronRight, Download, FileText, LifeBuoy, LogOut, Trash2, type LucideIcon } from "lucide-react";
 import { useTranslations } from "use-intl";
 import Link from "next/link";
-import { useState } from "react";
+import { FormEvent, useState } from "react";
 
 /** Back to the first page with a full reload, which drops everything still held in memory. */
 function leave() {
@@ -36,7 +38,10 @@ export default function SettingsPage() {
   const t = useTranslations("settings");
   const common = useTranslations("common");
   const errorText = useErrorText();
-  const { user } = useSession();
+  const { user, refresh } = useSession();
+  // What is typed in the name box. Null until the person types, so it shows the name on record.
+  const [typedName, setTypedName] = useState<string | null>(null);
+  const [nameNote, setNameNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -56,6 +61,24 @@ export default function SettingsPage() {
   async function signOut() {
     await authService.signOut();
     leave();
+  }
+
+  const name = typedName ?? user?.displayName ?? "";
+
+  async function saveName(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setNameNote(null);
+    const saved = await accountService.updateProfile({ displayName: name });
+    setBusy(false);
+    if (!saved.ok) {
+      setNameNote({ ok: false, text: errorText(saved.error) });
+      return;
+    }
+    setTypedName(null);
+    setNameNote({ ok: true, text: t("saved") });
+    // So the greeting and the corner of the screen show the new name at once.
+    await refresh();
   }
 
   async function downloadData() {
@@ -97,10 +120,35 @@ export default function SettingsPage() {
         <div className="flex items-center gap-3">
           <Avatar name={user?.displayName} size="lg" />
           <div className="min-w-0">
-            <p className="truncate text-[19px] font-semibold text-navy">{user?.displayName}</p>
-            <p className="truncate text-[15px] text-muted">{user?.email}</p>
+            <p className="truncate text-[19px] font-semibold text-navy">{user?.displayName || common("you")}</p>
+            <p className="truncate text-[15px] text-muted">{user ? showPhone(user.phone) : null}</p>
           </div>
         </div>
+        <form className="mt-5 space-y-3" onSubmit={saveName} noValidate>
+          <Input
+            id="name"
+            label={t("nameLabel")}
+            hint={t("nameHint")}
+            autoComplete="name"
+            maxLength={80}
+            value={name}
+            onChange={(e) => {
+              setTypedName(e.target.value);
+              setNameNote(null);
+            }}
+            error={nameNote && !nameNote.ok ? nameNote.text : undefined}
+          />
+          <div className="flex items-center gap-3">
+            <Button type="submit" variant="secondary" disabled={busy || typedName === null}>
+              {t("save")}
+            </Button>
+            {nameNote?.ok ? (
+              <p className="text-[15px] font-medium text-success" role="status">
+                {nameNote.text}
+              </p>
+            ) : null}
+          </div>
+        </form>
       </Card>
 
       <section className="mt-6">

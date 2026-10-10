@@ -3,7 +3,9 @@
 import { Avatar } from "@/components/brand/Avatar";
 import { BrandMark } from "@/components/brand/Logo";
 import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher";
-import { DisclaimerBar } from "@/components/ui/Display";
+import { Button } from "@/components/ui/Button";
+import { Alert, DisclaimerBar } from "@/components/ui/Display";
+import { useErrorText } from "@/hooks/useErrorText";
 import { useSession } from "@/hooks/useSession";
 import { CITIZEN_NAV, HELP_HREF } from "@/lib/constants";
 import { cn } from "@/lib/cn";
@@ -43,12 +45,15 @@ export function CitizenShell({ children }: { children: React.ReactNode }) {
   const common = useTranslations("common");
   const pathname = usePathname();
   const router = useRouter();
-  const { user, ready } = useSession();
+  const errorText = useErrorText();
+  const { user, ready, error, refresh } = useSession();
 
-  // The proxy only sees a cookie. If the session behind it is gone, send the person to sign in.
+  // The proxy only sees a cookie. If the session behind it is gone, send the
+  // person to sign in. Not when the session could not be checked: that is a bad
+  // connection, and the person may well be signed in.
   useEffect(() => {
-    if (ready && !user) router.replace(`/sign-in?next=${encodeURIComponent(pathname)}`);
-  }, [ready, user, pathname, router]);
+    if (ready && !user && !error) router.replace(`/sign-in?next=${encodeURIComponent(pathname)}`);
+  }, [ready, user, error, pathname, router]);
 
   return (
     <div className="min-h-screen bg-bg md:p-3">
@@ -86,7 +91,7 @@ export function CitizenShell({ children }: { children: React.ReactNode }) {
               <Avatar name={user?.displayName} size="sm" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[15px] font-semibold">
-                  {user?.displayName ?? common("you")}
+                  {user?.displayName || common("you")}
                 </span>
                 <span className="block text-[13px] text-white/75">{common("myAccount")}</span>
               </span>
@@ -110,7 +115,18 @@ export function CitizenShell({ children }: { children: React.ReactNode }) {
             </div>
           </header>
           <main id="main" className="min-w-0 flex-1">
-            {children}
+            {error ? (
+              <div className="mx-auto w-full max-w-lg space-y-4 px-4 py-8">
+                <Alert tone="danger" title={common("couldNotLoad")}>
+                  {errorText(error)}
+                </Alert>
+                <Button size="lg" className="w-full" onClick={() => void refresh()}>
+                  {common("tryAgain")}
+                </Button>
+              </div>
+            ) : (
+              children
+            )}
           </main>
           {/* Bottom padding keeps the line clear of the fixed phone navigation. */}
           <div className="border-t border-border bg-surface pb-16 md:pb-0">

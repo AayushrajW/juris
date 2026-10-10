@@ -60,8 +60,8 @@ export function forgetEverything() {
 
 /** Starts a session, with the sample cases handed to the person who signed in. */
 export function beginSession(user: User) {
-  // Compared by email: it is what the person typed, and two people never share one.
-  if (loadStore().user?.email !== user.email) forgetEverything();
+  // Compared by mobile number: it is what the person typed, and two people never share one.
+  if (loadStore().user?.phone !== user.phone) forgetEverything();
   updateStore((s) => ({
     ...s,
     user,

@@ -39,13 +39,11 @@
   },
   "landing": {
     "headerHow": "How it works",
-    "headerSignIn": "Sign in",
     "headerStart": "Get started",
     "kicker": "For people, not law firms",
     "title": "Understand a legal paper before you panic.",
     "lead": "{app} helps you read notices, agreements and other papers in simple words. You decide what to do. Only an advocate gives legal advice.",
     "start": "Start",
-    "signIn": "Sign in",
     "note": "This demo uses sample papers. It does not file cases or contact courts.",
     "pathTitle": "How you use it",
     "path1": "Bring a photo, a PDF, or tell your story.",
@@ -79,17 +77,23 @@
     "footerEcourts": "eCourts"
   },
   "auth": {
-    "demoNote": "This is a demo. Any name and email will open it.",
+    "demoNote": "This is a demo. Any mobile number opens it. No message is sent.",
     "signInTitle": "Sign in",
-    "signUpTitle": "Start the demo",
-    "name": "Your name",
-    "email": "Email",
-    "opening": "Opening…",
-    "enter": "Enter the demo",
-    "newHere": "New here?",
-    "createAccount": "Start with your name",
-    "haveAccount": "Been here before?",
-    "failed": "Could not open. Please try again."
+    "phoneLabel": "Your mobile number",
+    "phoneHint": "10 digits. We will send a code to this number.",
+    "sendCode": "Send code",
+    "sending": "Sending…",
+    "codeTitle": "Enter the code",
+    "codeSentTo": "We sent a 6-digit code to {phone}.",
+    "codeLabel": "6-digit code",
+    "checking": "Checking…",
+    "resend": "Send the code again",
+    "resendIn": "You can ask for a new code in {seconds} seconds.",
+    "changeNumber": "Change the number",
+    "demoCode": "Demo: no message was sent. The code is {code}.",
+    "errPhone": "Enter a 10-digit mobile number.",
+    "errCode": "That code is not right. Check it and try again.",
+    "errCodeExpired": "That code no longer works. Ask for a new one."
   },
   "dashboard": {
     "hello": "Hello, {name}!",
@@ -330,7 +334,11 @@
     "deleteAll": "Delete everything",
     "deleteAllTitle": "Delete everything?",
     "deleteAllBody": "All your problems, papers and questions will be removed from this phone, and you will be signed out. This cannot be undone.",
-    "deleteAllYes": "Yes, delete everything"
+    "deleteAllYes": "Yes, delete everything",
+    "nameLabel": "Your name",
+    "nameHint": "What we call you in the app. You can leave it empty.",
+    "save": "Save",
+    "saved": "Saved"
   },
   "documents": {
     "title": "My papers",

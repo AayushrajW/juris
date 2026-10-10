@@ -18,7 +18,7 @@ export function MarketingHeader() {
           </Link>
           <LanguageSwitcher />
           <Link
-            href="/sign-up"
+            href="/sign-in"
             className="inline-flex min-h-11 items-center rounded-xl bg-primary px-4 font-semibold text-white hover:bg-primary-hover"
           >
             {t("headerStart")}

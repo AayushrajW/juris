@@ -56,8 +56,7 @@ function guarded<T extends object>(service: T): T {
  * server and be reached from here through thin clients that call it; the
  * contracts in ./types.ts stay the same.
  */
-// Sign-in is not guarded: its methods do not answer with a Result yet (see ./types.ts).
-export const authService: AuthService = mockAuthService;
+export const authService: AuthService = guarded(mockAuthService);
 export const caseService: CaseService = guarded(mockCaseService);
 export const documentService: DocumentService = guarded(mockDocumentService);
 export const analysisService: AnalysisService = guarded(mockAnalysisService);

@@ -20,6 +20,7 @@ import type {
   AuthService,
   CaseService,
   ChatService,
+  CodeChallenge,
   CreateCaseInput,
   DocumentService,
 } from "@/services/types";
@@ -43,6 +44,8 @@ interface Services {
 interface Backstage {
   /** Empties everything, so each test starts clean. */
   reset(): void | Promise<void>;
+  /** The code that was sent for a challenge: what the person would read off their phone. */
+  codeFor(challenge: CodeChallenge): string | Promise<string>;
   /** Makes readings fail, or work again. */
   failReadings(on: boolean): void | Promise<void>;
   /**
@@ -66,8 +69,8 @@ const KNOWN_CODES: Record<ErrorCode, true> = {
 };
 
 const SAMPLE_CASE_IDS = ["case-consumer", "case-employment", "case-tenancy"];
-const ASHA = { email: "asha.contract@example.org", displayName: "Asha" };
-const BHARAT = { email: "bharat.contract@example.org", displayName: "Bharat" };
+const ASHA = { phone: "+919811100001" };
+const BHARAT = { phone: "+919811100002" };
 const STORY = "My landlord has not returned my deposit for three months.";
 const NOWHERE = "case-does-not-exist";
 
@@ -115,8 +118,26 @@ function wait(ms: number) {
 function describeContracts(name: string, services: Services, backstage: Backstage) {
   const { auth, cases, documents, analysis, chat, account } = services;
 
-  async function signInAs(who: { email: string; displayName?: string }): Promise<User> {
-    return unwrap(await auth.signIn(who));
+  /** Asks for a code and returns it with its challenge, as if the message had been read. */
+  async function codeSentTo(phone: string): Promise<{ challenge: CodeChallenge; code: string }> {
+    const challenge = unwrap(await auth.requestCode(phone));
+    return { challenge, code: await backstage.codeFor(challenge) };
+  }
+
+  async function signInAs(who: { phone: string }): Promise<User> {
+    // Long enough since any earlier code for this number that a new one may be asked for.
+    wait(120_000);
+    const { challenge, code } = await codeSentTo(who.phone);
+    return unwrap(await auth.verifyCode(challenge.challengeId, code));
+  }
+
+  async function current(): Promise<User | null> {
+    return unwrap(await auth.getSession());
+  }
+
+  /** A code of the right length that is not the one that was sent. */
+  function wrongCode(code: string) {
+    return code === "000000" ? "111111" : "000000";
   }
 
   async function newCase(title?: string): Promise<CaseRecord> {
@@ -181,8 +202,10 @@ function describeContracts(name: string, services: Services, backstage: Backstag
     });
 
     describe("sessions", () => {
-      it("has no session before anyone signs in", async () => {
-        expect(await auth.getSession()).toBeNull();
+      it("has no session before anyone signs in, and says so without failing", async () => {
+        expect(await auth.getSession()).toEqual({ ok: true, data: null });
+        // Signing out when nobody is signed in is not an error either.
+        expect(await auth.signOut()).toEqual({ ok: true, data: null });
       });
 
       it("refuses every case, paper, explanation, question and account request when nobody is signed in", async () => {
@@ -222,55 +245,151 @@ function describeContracts(name: string, services: Services, backstage: Backstag
         expectFailure(await documents.upload(SAMPLE_CASE_IDS[0], pdf("virus.exe")), "unauthenticated");
       });
 
-      it.each(["not-an-email", "asha@", "@example.org", "asha@example", "asha kale@example.org", ""])(
-        "signIn rejects the malformed email %j",
-        async (email) => {
-          expectFailure(await auth.signIn({ email }), "invalid", "email");
-          expect(await auth.getSession()).toBeNull();
+      it.each(["12345", "5876543210", "98765432101", "", "abcdefghij", "+1 202 555 0143", "+91 98765"])(
+        "requestCode rejects %j, which is not an Indian mobile number",
+        async (phone) => {
+          expectFailure(await auth.requestCode(phone), "invalid", "phone");
+          expect(await current()).toBeNull();
         },
       );
 
-      it("signUp rejects a malformed email in the same way", async () => {
-        expectFailure(await auth.signUp({ email: "not-an-email" }), "invalid", "email");
-        expect(await auth.getSession()).toBeNull();
-      });
+      it.each(["9811100001", "98111 00001", "+91 98111 00001", "+919811100001", "919811100001", "09811100001", "९८१११००००१"])(
+        "requestCode accepts the number typed as %j",
+        async (typed) => {
+          const challenge = unwrap(await auth.requestCode(typed));
+          expect(challenge.phone).toBe("+919811100001");
+          expect(challenge.challengeId.length).toBeGreaterThan(0);
+          expect(challenge.resendAfterSeconds).toBeGreaterThan(0);
+          expect(Date.parse(challenge.expiresAt)).toBeGreaterThan(Date.now());
+          // Asking for a code signs nobody in.
+          expect(await current()).toBeNull();
+        },
+      );
 
-      it("signIn returns a citizen with the email and name that were given", async () => {
-        const user = unwrap(await auth.signIn(ASHA));
-        expect(user.id).toEqual(expect.any(String));
+      it("verifyCode with the right code signs the person in", async () => {
+        const { challenge, code } = await codeSentTo(ASHA.phone);
+        const user = unwrap(await auth.verifyCode(challenge.challengeId, code));
+
         expect(user.id.length).toBeGreaterThan(0);
         expect(user.role).toBe("citizen");
-        expect(user.email).toBe(ASHA.email);
-        expect(user.displayName).toBe(ASHA.displayName);
+        expect(user.phone).toBe(ASHA.phone);
+        expect(typeof user.displayName).toBe("string");
         expect(["mr", "hi", "en"]).toContain(user.preferredLanguage);
+        expect(await current()).toEqual(user);
+        expect(unwrap(await cases.list()).items).toHaveLength(3);
       });
 
-      it("signUp then getSession returns the same user", async () => {
-        const user = unwrap(await auth.signUp(ASHA));
-        expect(await auth.getSession()).toEqual(user);
+      it("accepts the code typed with a space or in Devanagari digits", async () => {
+        const first = await codeSentTo(ASHA.phone);
+        const spaced = `${first.code.slice(0, 3)} ${first.code.slice(3)}`;
+        expect((await auth.verifyCode(first.challenge.challengeId, spaced)).ok).toBe(true);
+        unwrap(await auth.signOut());
+
+        wait(120_000);
+        const second = await codeSentTo(ASHA.phone);
+        const devanagari = second.code.replace(/\d/g, (d) => String.fromCodePoint(0x0966 + Number(d)));
+        expect((await auth.verifyCode(second.challenge.challengeId, devanagari)).ok).toBe(true);
       });
 
-      it("signIn then getSession returns the same user", async () => {
-        const user = unwrap(await auth.signIn(ASHA));
-        expect(await auth.getSession()).toEqual(user);
+      it("a wrong code is refused, signs nobody in, and the right one still works afterwards", async () => {
+        const { challenge, code } = await codeSentTo(ASHA.phone);
+        expectFailure(await auth.verifyCode(challenge.challengeId, wrongCode(code)), "invalid", "code", "wrong_code");
+        expectFailure(await auth.verifyCode(challenge.challengeId, "12"), "invalid", "code", "wrong_code");
+        expectFailure(await auth.verifyCode(challenge.challengeId, ""), "invalid", "code", "wrong_code");
+        expect(await current()).toBeNull();
+        expectFailure(await cases.list(), "unauthenticated");
+
+        expect(unwrap(await auth.verifyCode(challenge.challengeId, code)).phone).toBe(ASHA.phone);
+      });
+
+      it("a code that was guessed at too often stops working, even when the right one comes", async () => {
+        const { challenge, code } = await codeSentTo(ASHA.phone);
+        let refusals = 0;
+        for (let turn = 0; turn < 20; turn += 1) {
+          const result = await auth.verifyCode(challenge.challengeId, wrongCode(code));
+          expect(result.ok).toBe(false);
+          refusals += 1;
+          if (!result.ok && result.error.reason === "code_expired") break;
+          expectFailure(result, "invalid", "code", "wrong_code");
+        }
+        // Somewhere short of twenty guesses the code is thrown away.
+        expect(refusals).toBeLessThan(20);
+        expectFailure(await auth.verifyCode(challenge.challengeId, code), "invalid", "code", "code_expired");
+        expect(await current()).toBeNull();
+      });
+
+      it("a code stops working when it is too old", async () => {
+        const { challenge, code } = await codeSentTo(ASHA.phone);
+        vi.setSystemTime(new Date(Date.parse(challenge.expiresAt) + 1000));
+        expectFailure(await auth.verifyCode(challenge.challengeId, code), "invalid", "code", "code_expired");
+        expect(await current()).toBeNull();
+      });
+
+      it("a code works once", async () => {
+        const { challenge, code } = await codeSentTo(ASHA.phone);
+        unwrap(await auth.verifyCode(challenge.challengeId, code));
+        unwrap(await auth.signOut());
+        expectFailure(await auth.verifyCode(challenge.challengeId, code), "invalid", "code", "code_expired");
+        expect(await current()).toBeNull();
+      });
+
+      it("a challenge that was never issued is refused like an old one", async () => {
+        expectFailure(await auth.verifyCode("code-made-up", "123456"), "invalid", "code", "code_expired");
+      });
+
+      it("asking for another code too soon is refused, with how long to wait", async () => {
+        const first = await codeSentTo(ASHA.phone);
+        const tooSoon = await auth.requestCode(ASHA.phone);
+        expectFailure(tooSoon, "rate_limited");
+        if (!tooSoon.ok) {
+          expect(tooSoon.error.retryAfterSeconds).toBeGreaterThan(0);
+          expect(tooSoon.error.retryAfterSeconds).toBeLessThanOrEqual(first.challenge.resendAfterSeconds);
+        }
+        // Somebody else's number is not held up by it.
+        expect((await auth.requestCode(BHARAT.phone)).ok).toBe(true);
+        // And the first code is still good.
+        expect((await auth.verifyCode(first.challenge.challengeId, first.code)).ok).toBe(true);
+      });
+
+      it("a new code for a number replaces the one before it", async () => {
+        const first = await codeSentTo(ASHA.phone);
+        wait(first.challenge.resendAfterSeconds * 1000 + 1000);
+        const second = await codeSentTo(ASHA.phone);
+        expect(second.challenge.challengeId).not.toBe(first.challenge.challengeId);
+
+        expectFailure(
+          await auth.verifyCode(first.challenge.challengeId, first.code),
+          "invalid",
+          "code",
+          "code_expired",
+        );
+        expect((await auth.verifyCode(second.challenge.challengeId, second.code)).ok).toBe(true);
+      });
+
+      it("a code for one number does not open another's account", async () => {
+        const asha = await codeSentTo(ASHA.phone);
+        const bharat = await codeSentTo(BHARAT.phone);
+        const user = unwrap(await auth.verifyCode(bharat.challenge.challengeId, bharat.code));
+        expect(user.phone).toBe(BHARAT.phone);
+        expect(asha.challenge.challengeId).not.toBe(bharat.challenge.challengeId);
       });
 
       it("signOut ends the session", async () => {
         await signInAs(ASHA);
-        await auth.signOut();
-        expect(await auth.getSession()).toBeNull();
+        expect(unwrap(await auth.signOut())).toBeNull();
+        expect(await current()).toBeNull();
         expectFailure(await cases.list(), "unauthenticated");
         expectFailure(await account.exportData(), "unauthenticated");
       });
 
-      it("gives two different emails two different user ids", async () => {
+      it("gives two different numbers two different user ids", async () => {
         const asha = await signInAs(ASHA);
         await auth.signOut();
         const bharat = await signInAs(BHARAT);
         expect(bharat.id).not.toBe(asha.id);
       });
 
-      it("gives the same email the same user id every time", async () => {
+      it("gives the same number the same user id every time", async () => {
         const first = await signInAs(ASHA);
         await auth.signOut();
         const second = await signInAs(ASHA);
@@ -791,7 +910,7 @@ function describeContracts(name: string, services: Services, backstage: Backstag
         wait(60_000);
         const left = await allCases();
         expect(left.map((c) => c.id).sort()).toEqual(["case-consumer", "case-employment"]);
-        expect(await auth.getSession()).not.toBeNull();
+        expect(await current()).not.toBeNull();
       });
 
       it("lets the list become empty", async () => {
@@ -1502,7 +1621,7 @@ function describeContracts(name: string, services: Services, backstage: Backstag
 
         expect(unwrap(await account.deleteAccount())).toBeNull();
 
-        expect(await auth.getSession()).toBeNull();
+        expect(await current()).toBeNull();
         expectFailure(await cases.list(), "unauthenticated");
         expectFailure(await cases.get(own.id), "unauthenticated");
         expectFailure(await account.exportData(), "unauthenticated");
@@ -1529,10 +1648,11 @@ function describeContracts(name: string, services: Services, backstage: Backstag
     describe("profile", () => {
       it("updateProfile changes the name and the language, and the session shows it", async () => {
         const asha = await signInAs(ASHA);
+        expect(asha.phone).toBe(ASHA.phone);
         const changed = unwrap(await account.updateProfile({ displayName: "  Asha Kale ", preferredLanguage: "en" }));
 
         expect(changed).toEqual({ ...asha, displayName: "Asha Kale", preferredLanguage: "en" });
-        expect(await auth.getSession()).toEqual(changed);
+        expect(await current()).toEqual(changed);
         expect(unwrap(await account.exportData()).user).toEqual(changed);
         // Nothing else of the person's is touched.
         expect(await allCases()).toHaveLength(3);
@@ -1547,21 +1667,36 @@ function describeContracts(name: string, services: Services, backstage: Backstag
         expect(unwrap(await account.updateProfile({}))).toEqual({ ...asha, preferredLanguage: "hi" });
       });
 
-      it("updateProfile rejects an empty name and a language that is not offered", async () => {
+      it("updateProfile takes the name away when it is sent empty", async () => {
+        await signInAs(ASHA);
+        unwrap(await account.updateProfile({ displayName: "Asha Kale" }));
+        expect(unwrap(await account.updateProfile({ displayName: "   " })).displayName).toBe("");
+        expect((await current())?.displayName).toBe("");
+      });
+
+      it("updateProfile cannot change the number a person signs in with", async () => {
         const asha = await signInAs(ASHA);
-        expectFailure(await account.updateProfile({ displayName: "   " }), "invalid", "displayName", "empty");
+        const sneaky = { displayName: "Asha", phone: BHARAT.phone } as unknown as { displayName: string };
+        expect(unwrap(await account.updateProfile(sneaky)).phone).toBe(asha.phone);
+        expect((await current())?.phone).toBe(asha.phone);
+      });
+
+      it("updateProfile rejects a name that is too long and a language that is not offered", async () => {
+        const asha = await signInAs(ASHA);
+        expectFailure(await account.updateProfile({ displayName: "x".repeat(500) }), "invalid", "displayName", "too_long");
         expectFailure(
           await account.updateProfile({ preferredLanguage: "fr" as unknown as User["preferredLanguage"] }),
           "invalid",
           "preferredLanguage",
         );
-        expect(await auth.getSession()).toEqual(asha);
+        expect(await current()).toEqual(asha);
       });
     });
 
     describe("result shape", () => {
       it("a success carries data and no error", async () => {
-        const signedIn = await auth.signIn(ASHA);
+        const { challenge, code } = await codeSentTo(ASHA.phone);
+        const signedIn = await auth.verifyCode(challenge.challengeId, code);
         const listed = await cases.list();
         const removed = await cases.remove("case-tenancy");
         for (const result of [signedIn, listed, removed]) {
@@ -1575,7 +1710,7 @@ function describeContracts(name: string, services: Services, backstage: Backstag
       it("every failure has a code from ErrorCode and nothing named message", async () => {
         const failures: Result<unknown>[] = [
           await cases.list(),
-          await auth.signIn({ email: "not-an-email" }),
+          await auth.requestCode("not a number"),
         ];
         await signInAs(ASHA);
         const own = await newCase();
@@ -1626,6 +1761,11 @@ describeContracts(
     reset() {
       setFault(null);
       clearStore();
+    },
+    codeFor(challenge) {
+      // The demo sends no message and hands the code back with the challenge.
+      if (!challenge.demoCode) throw new Error("the demo did not say what the code is");
+      return challenge.demoCode;
     },
     failReadings(on) {
       setFault(on ? "job_failed" : null);

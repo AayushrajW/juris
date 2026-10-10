@@ -4,6 +4,7 @@ export const DEMO_USER: User = {
   id: "user-meera",
   role: "citizen",
   displayName: "Meera Iyer",
-  email: "meera.demo@juris.example",
+  // The number every phone shop in India writes on its sample forms.
+  phone: "+919876543210",
   preferredLanguage: "mr",
 };

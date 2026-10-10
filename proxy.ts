@@ -5,8 +5,8 @@ import { env } from "@/lib/env";
 import { safeNextPath } from "@/lib/safeRedirect";
 
 /** Every other path needs a session, so a new route is protected unless it is added here. */
-const PUBLIC_PATHS = new Set(["/", "/sign-in", "/sign-up"]);
-const AUTH_PAGES = new Set(["/sign-in", "/sign-up"]);
+const PUBLIC_PATHS = new Set(["/", "/sign-in"]);
+const AUTH_PAGES = new Set(["/sign-in"]);
 const ADVOCATE_PREFIXES = ["/lawyers", "/messages", "/bookmarks"];
 
 function startsWithAny(pathname: string, prefixes: string[]) {
@@ -33,6 +33,11 @@ function contentSecurityPolicy(nonce: string) {
 export function proxy(request: NextRequest) {
   const { pathname, search, searchParams } = request.nextUrl;
   const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
+
+  // There used to be a separate page for starting. Signing in now does both.
+  if (pathname === "/sign-up") {
+    return NextResponse.redirect(new URL(`/sign-in${search}`, request.url));
+  }
 
   if (!hasSession && !PUBLIC_PATHS.has(pathname)) {
     const url = new URL("/sign-in", request.url);

@@ -35,6 +35,15 @@ export interface StoredJob {
   kept?: LanguageCode;
 }
 
+/** A one-time code that was "sent". The demo sends nothing and shows the code on the screen. */
+export interface StoredChallenge {
+  phone: string;
+  code: string;
+  sentAt: string;
+  expiresAt: string;
+  wrongTries: number;
+}
+
 /** What a request with an id made, and a print of what was sent, to tell a retry from a reuse. */
 export interface StoredRequest {
   made: string;
@@ -57,6 +66,8 @@ export interface MockStore {
   jobs: Record<string, StoredJob>;
   /** What each request that carried an id made, so a retry makes no second one. */
   requests: Record<string, StoredRequest>;
+  /** One-time codes that have been asked for and not yet used, by challenge id. */
+  challenges: Record<string, StoredChallenge>;
   lawyerThreads: LawyerThread[];
 }
 
@@ -69,6 +80,7 @@ function seed(): MockStore {
     chats: {},
     jobs: {},
     requests: {},
+    challenges: {},
     lawyerThreads: structuredClone(DEMO_LAWYER_THREADS),
   };
 }
@@ -155,33 +167,15 @@ export function clearStore() {
   removeKeys([STORAGE_KEY, ...RETIRED_KEYS]);
 }
 
-function nameFromEmail(email: string) {
-  const local = email.split("@")[0]?.replace(/[._-]+/g, " ").trim();
-  return local ? local.replace(/\b\p{L}/gu, (ch) => ch.toUpperCase()) : "";
-}
-
-/** A stable id per email, so two people are never the same user. */
-function idFromEmail(email: string) {
+/** A stable id per mobile number, so two people are never the same user. */
+function idFromPhone(phone: string) {
   let hash = 5381;
-  for (const ch of email) hash = ((hash * 33) ^ ch.codePointAt(0)!) >>> 0;
+  for (const ch of phone) hash = ((hash * 33) ^ ch.codePointAt(0)!) >>> 0;
   return `user-${hash.toString(36)}`;
 }
 
-export function demoUserFromName(
-  name: string | undefined,
-  email: string,
-  language: LanguageCode,
-): User {
-  const cleanEmail = email.trim().toLowerCase() || DEMO_USER.email;
-  const isDemoAccount = cleanEmail === DEMO_USER.email;
-  return {
-    id: isDemoAccount ? DEMO_USER.id : idFromEmail(cleanEmail),
-    role: "citizen",
-    displayName:
-      name?.trim() ||
-      (isDemoAccount ? DEMO_USER.displayName : nameFromEmail(cleanEmail)) ||
-      DEMO_USER.displayName,
-    email: cleanEmail,
-    preferredLanguage: language,
-  };
+/** The person a mobile number belongs to. The sample number is the sample person. */
+export function demoUserFromPhone(phone: string, language: LanguageCode): User {
+  if (phone === DEMO_USER.phone) return { ...DEMO_USER, preferredLanguage: language };
+  return { id: idFromPhone(phone), role: "citizen", displayName: "", phone, preferredLanguage: language };
 }

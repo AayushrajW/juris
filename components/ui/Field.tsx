@@ -1,5 +1,5 @@
 import { cn } from "@/lib/cn";
-import type { InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import type { InputHTMLAttributes, Ref, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 
 interface FieldProps {
   label: string;
@@ -15,7 +15,7 @@ export function Input({
   id,
   className,
   ...props
-}: FieldProps & InputHTMLAttributes<HTMLInputElement>) {
+}: FieldProps & InputHTMLAttributes<HTMLInputElement> & { ref?: Ref<HTMLInputElement> }) {
   return (
     <div className="space-y-1.5">
       <label htmlFor={id} className="block text-sm font-medium text-ink">

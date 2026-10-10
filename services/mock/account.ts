@@ -29,10 +29,8 @@ export const mockAccountService: AccountService = {
   async updateProfile(changes) {
     const who = signedIn();
     if (!who.ok) return who;
+    // An empty name is allowed: it takes the name away again.
     const displayName = changes.displayName?.trim();
-    if (changes.displayName !== undefined && !displayName) {
-      return fail("invalid", { reason: "empty", field: "displayName" });
-    }
     if (displayName && displayName.length > MAX_NAME_LENGTH) {
       return fail("invalid", { reason: "too_long", field: "displayName" });
     }

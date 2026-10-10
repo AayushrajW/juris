@@ -10,6 +10,13 @@ import { clearStore } from "@/services/mock/store";
  * implementation is behind it: a call never throws, and a session that has
  * ended is reported. The screens rely on both.
  */
+async function signIn() {
+  const sent = await authService.requestCode("+919811100009");
+  if (!sent.ok || !sent.data.demoCode) throw new Error("no code");
+  const checked = await authService.verifyCode(sent.data.challengeId, sent.data.demoCode);
+  if (!checked.ok) throw new Error("could not sign in");
+}
+
 describe("what every service does, whatever is behind it", () => {
   let ended: number;
   let stopListening: () => void;
@@ -30,7 +37,7 @@ describe("what every service does, whatever is behind it", () => {
   });
 
   it("turns a thrown error into an 'unavailable' failure", async () => {
-    await authService.signIn({ email: "asha.guard@example.org" });
+    await signIn();
     vi.spyOn(mockCaseService, "list").mockRejectedValue(new Error("connection dropped"));
     vi.spyOn(mockCaseService, "get").mockImplementation(() => {
       throw new Error("broken before it could even answer");
@@ -42,7 +49,7 @@ describe("what every service does, whatever is behind it", () => {
   });
 
   it("passes an ordinary answer through untouched", async () => {
-    await authService.signIn({ email: "asha.guard@example.org" });
+    await signIn();
     const listed = await caseService.list();
     expect(listed.ok && listed.data.items.length).toBe(3);
     expect(await caseService.get("case-does-not-exist")).toEqual({ ok: false, error: { code: "not_found" } });
@@ -58,7 +65,7 @@ describe("what every service does, whatever is behind it", () => {
   });
 
   it("reports it when a session ends in the middle of use", async () => {
-    await authService.signIn({ email: "asha.guard@example.org" });
+    await signIn();
     expect((await caseService.list()).ok).toBe(true);
     expect(ended).toBe(0);
 
@@ -68,7 +75,7 @@ describe("what every service does, whatever is behind it", () => {
   });
 
   it("does not report other failures as the end of the session", async () => {
-    await authService.signIn({ email: "asha.guard@example.org" });
+    await signIn();
     setFault("rate_limited");
     const limited = await caseService.list();
     expect(limited).toEqual({ ok: false, error: { code: "rate_limited", retryAfterSeconds: 30 } });

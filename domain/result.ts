@@ -30,6 +30,10 @@ export type ErrorReason =
   | "file_type"
   | "file_size"
   | "bad_cursor"
+  /** The one-time code does not match. The same code can be typed again. */
+  | "wrong_code"
+  /** The one-time code is too old, already used, or was guessed at too often. A new one is needed. */
+  | "code_expired"
   /** The explanation is still being written. */
   | "not_ready"
   /** Nobody has asked for the case to be read yet. */

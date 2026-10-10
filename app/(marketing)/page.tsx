@@ -39,16 +39,10 @@ export default function LandingPage() {
             <p className="mt-4 max-w-xl text-lg text-ink/85">{t("lead", app)}</p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
-                href="/sign-up"
+                href="/sign-in"
                 className="inline-flex min-h-14 items-center rounded-xl bg-primary px-8 text-[18px] font-semibold text-white hover:bg-primary-hover"
               >
                 {t("start")}
-              </Link>
-              <Link
-                href="/sign-in"
-                className="inline-flex min-h-14 items-center rounded-xl border border-border px-6 text-[17px] font-semibold text-navy"
-              >
-                {t("signIn")}
               </Link>
             </div>
             <p className="mt-4 text-[15px] text-muted">{t("note")}</p>
@@ -110,7 +104,7 @@ export default function LandingPage() {
         <h2 className="text-3xl font-semibold text-navy">{t("forTitle")}</h2>
         <p className="mt-3 max-w-2xl text-[17px] text-ink/85">{t("forBody")}</p>
         <Link
-          href="/sign-up"
+          href="/sign-in"
           className="mt-8 inline-flex min-h-14 items-center rounded-xl bg-navy px-8 text-[17px] font-semibold text-white"
         >
           {t("openDemo")}
