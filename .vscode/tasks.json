@@ -1,0 +1,38 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run the app",
+      "type": "npm",
+      "script": "dev",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Check everything (types, lint, tests)",
+      "type": "npm",
+      "script": "check",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "App tests",
+      "type": "npm",
+      "script": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Database tests",
+      "type": "npm",
+      "script": "test:db",
+      "problemMatcher": []
+    },
+    {
+      "label": "Build",
+      "type": "npm",
+      "script": "build",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    }
+  ]
+}

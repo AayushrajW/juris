@@ -1,0 +1,16 @@
+{
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.formatOnSave": false,
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.associations": {
+    "*.css": "tailwindcss"
+  },
+  "search.exclude": {
+    "**/.next": true,
+    "**/node_modules": true,
+    "package-lock.json": true
+  }
+}

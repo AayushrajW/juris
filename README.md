@@ -8,18 +8,39 @@ Juris explains and organises information. It is not a lawyer and does not give l
 
 This repository is a front-end demo running on sample data. There is no backend yet: sign-in is a demo, cases live in the browser's `localStorage`, and the explanations and chat replies are scripted samples. It is **not ready for public use**.
 
-The path from here to a public launch is in **[docs/LAUNCH_PLAN.md](docs/LAUNCH_PLAN.md)**. The audit behind it is in [docs/AUDIT_FINDINGS.md](docs/AUDIT_FINDINGS.md).
+**[PRODUCT_DOCUMENTATION.md](PRODUCT_DOCUMENTATION.md)** says exactly what works today, what is a demo and what is not built. Read it before assuming a feature is real.
 
-## Run locally
+## Quick start
 
-Needs Node.js 20.9 or newer.
+You need [Node.js](https://nodejs.org) 20.9 or newer and Git. No account, key or database is needed.
 
 ```bash
+git clone https://github.com/AayushrajW/juris.git
+cd juris
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Sign in with any mobile number: no message is sent, and the code is shown on the screen. A sample person (`Meera Iyer`) and three sample cases load in the browser.
+Open [http://localhost:3000](http://localhost:3000). Sign in with any mobile number: no message is sent, and the code is shown on the screen. A sample person (`Meera Iyer`) and three sample cases load in the browser. The app opens in Marathi; the language button is at the top right.
+
+**New to the project? [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** walks through it step by step: VS Code and other editors, the commands, how to make a change, and what to do when something goes wrong.
+
+## Documents
+
+| Read this | For |
+|---|---|
+| [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | Running the app on your computer and making your first change |
+| [PRODUCT_DOCUMENTATION.md](PRODUCT_DOCUMENTATION.md) | The true current state: every feature, how it was verified, and its limits |
+| [docs/LAUNCH_PLAN.md](docs/LAUNCH_PLAN.md) | The path from here to a public launch |
+| [docs/AUDIT_FINDINGS.md](docs/AUDIT_FINDINGS.md) | The audit behind the plan |
+| [db/README.md](db/README.md) | The database schema for the backend to come |
+
+## Working together
+
+- Work on a branch and open a pull request. CI (`.github/workflows/ci.yml`) runs the type-check, lint, both sets of tests, a build and a dependency audit on every pull request and on every push to `main`.
+- Run `npm run check` before you push. It runs everything CI does except the build and the audit.
+- Any text a person sees goes in **all three** language files (see Languages below). The tests fail if one is missing.
+- If a change affects what the product does, update `PRODUCT_DOCUMENTATION.md` in the same pull request.
 
 ## Languages
 
@@ -36,7 +57,7 @@ To add a language: add its code to `i18n/config.ts`, add `messages/<code>.json` 
 
 ## Settings
 
-Copy `.env.example` to `.env.local` to change a setting. Both are public flags, built into the pages.
+None are needed to run the app. To change one, copy `.env.example` to `.env.local`. Both are public flags, built into the pages; neither is a secret.
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -59,8 +80,6 @@ A value other than `true` or `false` fails the build.
 | `npm run check` | Type-check, lint and both sets of tests together |
 | `npm run format` | Format with Prettier |
 
-CI (`.github/workflows/ci.yml`) runs type-check, lint, tests, build and a dependency audit on every pull request.
-
 ## How it is put together
 
 - `app/` — routes and layouts. `proxy.ts` protects every route that is not on its public list and sets the content security policy.
@@ -72,6 +91,7 @@ CI (`.github/workflows/ci.yml`) runs type-check, lint, tests, build and a depend
 - `messages/` — interface text, one file per language.
 - `lib/` — helpers. `lib/helplines.ts` holds the official phone numbers on the Free help screen; re-check them every three months.
 - `tests/` — unit tests. `tests/contracts.test.ts` checks everything the service contract promises; a real backend must pass the same suite.
+- `.vscode/`, `.editorconfig`, `.nvmrc` — shared editor settings and the Node.js version, so the project opens the same way for everyone.
 
 The product name is one constant, `APP_NAME` in `lib/constants.ts`.
 
